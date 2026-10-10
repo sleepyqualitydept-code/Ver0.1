@@ -18,7 +18,7 @@ export interface DatabaseHealthStatus {
   tableCount: number;
   hasUserRoles: boolean;
   hasProfiles: boolean;
-  hasProducts: boolean;
+  hasModels: boolean;
   hasProductionOrders: boolean;
   hasSerialNumbers: boolean;
   hasWarrantyActivations: boolean;
@@ -30,7 +30,7 @@ export interface DatabaseHealthStatus {
 const CORE_TABLES = [
   'user_roles',
   'profiles',
-  'products',
+  'models',
   'production_orders',
   'serial_numbers',
   'warranty_activations'
@@ -46,7 +46,7 @@ function unavailableStatus(projectUrl: string, projectRef: string, errorMessage:
     tableCount: 0,
     hasUserRoles: false,
     hasProfiles: false,
-    hasProducts: false,
+    hasModels: false,
     hasProductionOrders: false,
     hasSerialNumbers: false,
     hasWarrantyActivations: false,
@@ -67,7 +67,7 @@ export async function checkDatabaseHealth(): Promise<DatabaseHealthStatus> {
   const statusMap: Record<CoreTableName, boolean> = {
     user_roles: false,
     profiles: false,
-    products: false,
+    models: false,
     production_orders: false,
     serial_numbers: false,
     warranty_activations: false
@@ -98,7 +98,7 @@ export async function checkDatabaseHealth(): Promise<DatabaseHealthStatus> {
       tableCount: verifiedCoreTableCount,
       hasUserRoles: statusMap.user_roles,
       hasProfiles: statusMap.profiles,
-      hasProducts: statusMap.products,
+      hasModels: statusMap.models,
       hasProductionOrders: statusMap.production_orders,
       hasSerialNumbers: statusMap.serial_numbers,
       hasWarrantyActivations: statusMap.warranty_activations,

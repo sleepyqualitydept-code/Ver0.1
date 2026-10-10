@@ -23,7 +23,7 @@ interface DatabaseNotDeployedScreenProps {
 const CORE_TABLES = [
   { key: 'hasUserRoles', name: 'user_roles' },
   { key: 'hasProfiles', name: 'profiles' },
-  { key: 'hasProducts', name: 'products' },
+  { key: 'hasModels', name: 'models' },
   { key: 'hasProductionOrders', name: 'production_orders' },
   { key: 'hasSerialNumbers', name: 'serial_numbers' },
   { key: 'hasWarrantyActivations', name: 'warranty_activations' }
