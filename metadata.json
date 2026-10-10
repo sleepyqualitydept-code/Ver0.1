@@ -1,0 +1,6 @@
+{
+  "name": "Sleepee Manufacturing, Warranty & Customer Service Platform",
+  "description": "Sleepee's premium industrial platform for production planning, serialization, label printing, warranty activation, customer service 360, and replacement management.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

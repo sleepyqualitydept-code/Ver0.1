@@ -1,0 +1,1 @@
+SELECT 'categories', COUNT(*) FROM categories UNION ALL SELECT 'brands', COUNT(*) FROM brands UNION ALL SELECT 'product_types', COUNT(*) FROM product_types UNION ALL SELECT 'mattress_sizes', COUNT(*) FROM mattress_sizes UNION ALL SELECT 'models', COUNT(*) FROM models UNION ALL SELECT 'products', COUNT(*) FROM products;
