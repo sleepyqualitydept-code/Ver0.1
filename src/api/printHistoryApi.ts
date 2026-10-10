@@ -5,7 +5,7 @@
 
 import { supabase } from '../lib/supabase.ts';
 import { serialNumbersApi } from './serialNumbersApi.ts';
-import { printJobsApi } from './printJobsApi.ts';
+import { printJobsApi, PrintJob } from './printJobsApi.ts';
 
 const getClient = () => {
   if (!supabase) throw new Error('Supabase client is not initialized.');
@@ -113,7 +113,7 @@ export const printHistoryApi = {
     serialId: string;
     reason: string;
     userId?: string;
-  }): Promise<PrintHistoryRecord> {
+  }): Promise<PrintJob> {
     const { serialId, reason, userId } = params;
 
     if (!serialId || serialId.trim() === '') {
@@ -131,14 +131,38 @@ export const printHistoryApi = {
     }
 
     // 2. Verify original print record exists
-    const { data: existingHistory } = await getClient()
+    const { data: existingHistory, error: historyLookupError } = await getClient()
       .from('print_history')
-      .select('*')
+      .select('id, print_job_id, printed_at')
       .eq('serial_id', serialId)
+      .order('printed_at', { ascending: false })
       .limit(1);
 
-    if ((!existingHistory || existingHistory.length === 0) && serial.status === 'generated') {
-      throw new Error('REPRINT_VALIDATION_ERROR: Cannot reprint a label that has never been originally printed. Please run a standard print job first.');
+    if (historyLookupError) throw new Error(`REPRINT_VALIDATION_ERROR: Could not inspect original print history: ${historyLookupError.message}`);
+    if (!existingHistory || existingHistory.length === 0) {
+      throw new Error('REPRINT_VALIDATION_ERROR: Cannot reprint a serial without an original recorded print event.');
+    }
+    const originalPrintJobId = existingHistory[0].print_job_id;
+    const { data: originalJob, error: originalJobError } = await getClient()
+      .from('print_jobs')
+      .select('template_id, printer_name')
+      .eq('id', originalPrintJobId)
+      .maybeSingle();
+    if (originalJobError) throw new Error(`REPRINT_VALIDATION_ERROR: Could not load original print job: ${originalJobError.message}`);
+    if (!originalJob?.template_id) {
+      throw new Error('REPRINT_VALIDATION_ERROR: The original print job has no template reference, so a safe reprint cannot be queued.');
+    }
+    let originalMetadata: any = null;
+    try {
+      originalMetadata = typeof originalJob.printer_name === 'string' && originalJob.printer_name.trim().startsWith('{')
+        ? JSON.parse(originalJob.printer_name)
+        : null;
+    } catch {
+      originalMetadata = null;
+    }
+    const originalTemplateSnapshot = originalMetadata?.template_snapshot;
+    if (!originalTemplateSnapshot || !Array.isArray(originalTemplateSnapshot.elements)) {
+      throw new Error('REPRINT_VALIDATION_ERROR: The original print job has no saved label-layout snapshot. A safe reprint cannot be queued from an unversioned layout.');
     }
 
     const batchId = serial.batch_id || serial.production_batches?.id;
@@ -147,42 +171,17 @@ export const printHistoryApi = {
     }
 
     // 3. Create a traceable Reprint Job in PostgreSQL
-    const reprintJob = await printJobsApi.createJob({
+    // Queue a traceable request using the same template as the last actual print.
+    // Do not insert print_history or mark this job printed before a physical print succeeds.
+    return printJobsApi.createJob({
       batchId,
+      templateId: originalJob.template_id,
+      templateSnapshotOverride: originalTemplateSnapshot,
+      targetSerialId: serialId,
       copies: 1,
       userId,
       isReprint: true,
       reprintReason: reason.trim()
     });
-
-    // 4. Create new print_history entry (Original history remains untouched)
-    const { data: newHist, error: insertErr } = await getClient()
-      .from('print_history')
-      .insert([{
-        print_job_id: reprintJob.id,
-        serial_id: serialId,
-        printed_at: new Date().toISOString()
-      }])
-      .select();
-
-    if (insertErr || !newHist?.[0]) {
-      throw new Error(insertErr?.message || 'Failed to record reprint event in database.');
-    }
-
-    // Mark reprint job as printed
-    await printJobsApi.updateJobStatus(reprintJob.id, 'printed', {
-      printed_labels: 1,
-      failed_labels: 0
-    });
-
-    // 5. Append history event to serial_history
-    await serialNumbersApi.addHistoryEvent(
-      serialId,
-      'Printed',
-      `[REPRINT EXECUTED] Reason: ${reason.trim()}`,
-      userId
-    );
-
-    return newHist[0];
   }
 };

@@ -334,8 +334,18 @@ export default function LabelDesignerView({
   // Canvas element property updater
   const updateElementProps = (elementId: string, updates: Partial<LabelElement>) => {
     if (!selectedTemplate) return;
+    const canvasW = selectedTemplate.label_width;
+    const canvasH = selectedTemplate.label_height;
     const currentElements = selectedTemplate.template_json.elements || [];
-    const updated = currentElements.map(el => el.id === elementId ? { ...el, ...updates } : el);
+    const updated = currentElements.map((el) => {
+      if (el.id !== elementId) return el;
+      const merged = { ...el, ...updates };
+      const safeWidth = Number.isFinite(merged.width) ? Math.min(canvasW, Math.max(0.1, merged.width)) : el.width;
+      const safeHeight = Number.isFinite(merged.height) ? Math.min(canvasH, Math.max(0.1, merged.height)) : el.height;
+      const safeX = Number.isFinite(merged.x) ? Math.max(0, Math.min(canvasW - safeWidth, merged.x)) : el.x;
+      const safeY = Number.isFinite(merged.y) ? Math.max(0, Math.min(canvasH - safeHeight, merged.y)) : el.y;
+      return { ...merged, x: safeX, y: safeY, width: safeWidth, height: safeHeight };
+    });
 
     setSelectedTemplate({
       ...selectedTemplate,
@@ -508,8 +518,11 @@ export default function LabelDesignerView({
       let dropMmX = snapValue(dropPixelX / scaleFactor, gridSizeMm);
       let dropMmY = snapValue(dropPixelY / scaleFactor, gridSizeMm);
 
-      const defaultW = type === 'barcode' ? 60 : (type === 'qr' ? 22 : (type === 'line' ? 80 : (type === 'logo' ? 45 : 40)));
-      const defaultH = type === 'barcode' ? 16 : (type === 'qr' ? 22 : (type === 'line' ? 2 : (type === 'logo' ? 18 : 12)));
+      const requestedW = type === 'barcode' ? 60 : (type === 'qr' ? 22 : (type === 'line' ? 80 : (type === 'logo' ? 45 : 40)));
+      const requestedH = type === 'barcode' ? 16 : (type === 'qr' ? 22 : (type === 'line' ? 2 : (type === 'logo' ? 18 : 12)));
+      // Keep dropped elements valid even on very small custom canvases.
+      const defaultW = Math.max(0.1, Math.min(requestedW, selectedTemplate.label_width));
+      const defaultH = Math.max(0.1, Math.min(requestedH, selectedTemplate.label_height));
 
       dropMmX = Math.max(0, Math.min(selectedTemplate.label_width - defaultW, dropMmX));
       dropMmY = Math.max(0, Math.min(selectedTemplate.label_height - defaultH, dropMmY));
@@ -704,18 +717,22 @@ export default function LabelDesignerView({
   // Alignment & Distribution handler (FIX 06 - Layout Tools)
   const handleAlign = (alignment: 'left' | 'right' | 'top' | 'bottom' | 'center-h' | 'center-v') => {
     if (!activeElement || !selectedTemplate) return;
-    const canvasW = 100;
+    const canvasW = selectedTemplate.label_width;
     const canvasH = selectedTemplate.label_height;
 
     let newX = activeElement.x;
     let newY = activeElement.y;
 
-    if (alignment === 'left') newX = 5;
-    if (alignment === 'right') newX = canvasW - activeElement.width - 5;
-    if (alignment === 'center-h') newX = Math.round((canvasW - activeElement.width) / 2);
-    if (alignment === 'top') newY = 5;
-    if (alignment === 'bottom') newY = canvasH - activeElement.height - 5;
-    if (alignment === 'center-v') newY = Math.round((canvasH - activeElement.height) / 2);
+    const marginX = Math.min(5, canvasW * 0.05);
+    const marginY = Math.min(5, canvasH * 0.05);
+    if (alignment === 'left') newX = marginX;
+    if (alignment === 'right') newX = canvasW - activeElement.width - marginX;
+    if (alignment === 'center-h') newX = (canvasW - activeElement.width) / 2;
+    if (alignment === 'top') newY = marginY;
+    if (alignment === 'bottom') newY = canvasH - activeElement.height - marginY;
+    if (alignment === 'center-v') newY = (canvasH - activeElement.height) / 2;
+    newX = Math.max(0, Math.min(canvasW - activeElement.width, newX));
+    newY = Math.max(0, Math.min(canvasH - activeElement.height, newY));
 
     updateElementProps(activeElement.id, { x: newX, y: newY });
   };
@@ -738,8 +755,8 @@ export default function LabelDesignerView({
 
       let currentX = minX;
       elements.forEach(el => {
-        el.x = Math.round(currentX);
-        currentX += el.width + gap;
+        el.x = Math.max(0, Math.min(selectedTemplate.label_width - el.width, Math.round(currentX)));
+        currentX += el.width + Math.max(0, gap);
       });
     } else {
       // Sort by Y
@@ -753,8 +770,8 @@ export default function LabelDesignerView({
 
       let currentY = minY;
       elements.forEach(el => {
-        el.y = Math.round(currentY);
-        currentY += el.height + gap;
+        el.y = Math.max(0, Math.min(selectedTemplate.label_height - el.height, Math.round(currentY)));
+        currentY += el.height + Math.max(0, gap);
       });
     }
 
@@ -790,8 +807,8 @@ export default function LabelDesignerView({
       const created = await labelTemplatesApi.create({
         name: newTemplateName.trim(),
         categoryId: newCategoryId,
-        labelWidth: labelWidth as 100,
-        labelHeight: labelHeight as 50 | 100
+        labelWidth,
+        labelHeight
       });
 
       onLogAudit?.('TEMPLATE_CREATED', `Created label template ${created.name} (${created.label_width}x${created.label_height}mm)`);
@@ -1473,10 +1490,10 @@ export default function LabelDesignerView({
                     style={{ width: `${selectedTemplate.label_width * scaleFactor}px` }}
                   >
                     <span>0mm</span>
-                    <span>25mm</span>
-                    <span>50mm</span>
-                    <span>75mm</span>
-                    <span>100mm</span>
+                    <span>{Math.round(selectedTemplate.label_width * 0.25)}mm</span>
+                    <span>{Math.round(selectedTemplate.label_width * 0.5)}mm</span>
+                    <span>{Math.round(selectedTemplate.label_width * 0.75)}mm</span>
+                    <span>{selectedTemplate.label_width}mm</span>
                   </div>
 
                   <div className="flex">
@@ -1486,7 +1503,7 @@ export default function LabelDesignerView({
                       style={{ height: `${selectedTemplate.label_height * scaleFactor}px` }}
                     >
                       <span>0</span>
-                      {selectedTemplate.label_height === 100 && <span>50</span>}
+                      <span>{Math.round(selectedTemplate.label_height / 2)}</span>
                       <span>{selectedTemplate.label_height}</span>
                     </div>
 
@@ -1563,14 +1580,14 @@ export default function LabelDesignerView({
                             {/* QR Code */}
                             {el.type === 'qr' && (
                               <div className="w-full h-full flex flex-col items-center justify-center p-0.5">
-                                <QRCodeSVG value={resolvedPreviewData.qrUrl !== 'Not Available' ? resolvedPreviewData.qrUrl : 'https://sleepee.com/verify'} size={Math.min(el.width, el.height) * scaleFactor - 8} />
+                                <QRCodeSVG value={resolvedPreviewData.qrUrl !== 'Not Available' ? resolvedPreviewData.qrUrl : 'https://sleepee.com/verify'} size={Math.max(1, Math.min(el.width, el.height) * scaleFactor - 8)} />
                               </div>
                             )}
 
                             {/* Barcode */}
                             {el.type === 'barcode' && (
                               <div className="w-full h-full flex flex-col items-center justify-center p-0.5">
-                                <BarcodeSVG value={resolvedPreviewData.serialNumber !== 'Not Available' ? resolvedPreviewData.serialNumber : 'SLP-PREVIEW'} height={el.height * scaleFactor - 12} />
+                                <BarcodeSVG value={resolvedPreviewData.serialNumber !== 'Not Available' ? resolvedPreviewData.serialNumber : 'SLP-PREVIEW'} height={Math.max(1, el.height * scaleFactor - 12)} />
                               </div>
                             )}
 
@@ -1877,7 +1894,7 @@ export default function LabelDesignerView({
             <div className="lg:col-span-7 bg-white dark:bg-slate-900 p-8 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col items-center justify-center min-h-[480px]">
               {selectedTemplate ? (
                 <div 
-                  className="relative bg-white text-slate-900 border-2 border-slate-900 shadow-2xl rounded-sm p-4 overflow-hidden select-none"
+                  className="relative bg-white text-slate-900 border-2 border-slate-900 shadow-2xl rounded-sm overflow-hidden select-none"
                   style={{
                     width: `${selectedTemplate.label_width * 4}px`,
                     height: `${selectedTemplate.label_height * 4}px`
@@ -1936,7 +1953,7 @@ export default function LabelDesignerView({
                       {el.type === 'qr' && (
                         <div className="w-full h-full flex items-center justify-center p-0.5">
                           {resolvedPreviewData.qrUrl !== 'Not Available' ? (
-                            <QRCodeSVG value={resolvedPreviewData.qrUrl} size={Math.min(el.width, el.height) * 4 - 8} />
+                            <QRCodeSVG value={resolvedPreviewData.qrUrl} size={Math.max(1, Math.min(el.width, el.height) * 4 - 8)} />
                           ) : (
                             <div className="text-[9px] font-mono text-slate-400">Not Available</div>
                           )}
@@ -1947,7 +1964,7 @@ export default function LabelDesignerView({
                       {el.type === 'barcode' && (
                         <div className="w-full h-full flex flex-col items-center justify-center p-0.5">
                           {resolvedPreviewData.serialNumber !== 'Not Available' ? (
-                            <BarcodeSVG value={resolvedPreviewData.serialNumber} height={el.height * 4 - 12} />
+                            <BarcodeSVG value={resolvedPreviewData.serialNumber} height={Math.max(1, el.height * 4 - 12)} />
                           ) : (
                             <div className="text-[9px] font-mono text-slate-400">Not Available</div>
                           )}
@@ -2075,7 +2092,7 @@ export default function LabelDesignerView({
 
               <div>
                 <label className="text-xs font-semibold text-slate-600 dark:text-slate-400 block mb-1">
-                  {lang === 'ar' ? 'مقاس الملصق الحراري (Zebra ZD220) *' : 'Supported Label Size (Zebra ZD220) *'}
+                  {lang === 'ar' ? 'مقاس الملصق (مم) *' : 'Label Size (mm) *'}
                 </label>
                 <div className="grid grid-cols-2 gap-3">
                   {([

@@ -1,25 +1,9 @@
-SLEEPEE PLATFORM — REBUILT CANDIDATE v1.1
-Canonical Reference: Sleepee_Single_Source_Of_Truth_v1.0
-Package status: PARTIALLY COMPLIANT / NOT CERTIFIED / BUILD NOT VERIFIED / LIVE SUPABASE NOT VERIFIED
-
-Baseline ZIP:
-SLEEPEE_PLATFORM_PHASE_10_18_UNIFIED_v1.0(4).zip
-SHA-256: 11a3a0ce4e08d37394b4da4d80c57162529991a0858bd83bb19dbcca0e66fc62
-
-Integration layer input:
-SLEEPEE_PLATFORM_INTEGRATION_CANDIDATE_v1.0.zip
-SHA-256: 5ccfe83cf5da45338bfce3f1ebcb5e2ca649ed6469335dda99d2691e7ad670a4
-
-Required review entry points:
-- README_START_HERE_AR.md
-- docs/reference/Sleepee_Architecture_Development_Blueprint_v1.0_DRAFT_AR.md
-- docs/reference/Sleepee_Architecture_Development_Blueprint_v1.0_DRAFT_AR.docx
-- docs/reference/Sleepee_Single_Source_Of_Truth_v1.0_Portable_Reference.md
-- docs/integration/INTEGRATION_STATUS_AR.md
-- docs/integration/REBUILD_RECONCILIATION_REPORT_AR.md
-- docs/integration/GOOGLE_AI_STUDIO_AND_GITHUB_HANDOFF_AR.md
-- docs/integration/IMPLEMENTATION_GAPS_AR.md
-
-No live Supabase SQL execution was performed. No GitHub push or Google AI Studio synchronization was performed.
-
-Rebuilt source files: 137 (verified after reconstruction; includes architecture blueprint Markdown and DOCX).
+Sleepee Manufacturing, Warranty & Customer Service Platform
+Release candidate: SLEEPEE_PLATFORM_LABEL_PRINTING_HARDENED_CANDIDATE_v1.4
+Base: Candidate v1.3 + bounded label editor placement and print-template geometry summary.
+Status: REVIEW CANDIDATE; NOT PRODUCTION CERTIFIED.
+Database migrations executed: NO.
+Supabase live database modified: NO.
+Physical Zebra ZD220 printing tested: NO.
+Build and lint proven in this environment: NO (dependency installation timed out).
+See docs/integration/LABEL_AND_PRINTING_HARDENING_REPORT_AR.md.

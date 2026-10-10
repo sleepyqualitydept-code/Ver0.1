@@ -4,7 +4,7 @@
  */
 
 import { supabase } from '../lib/supabase.ts';
-import { labelTemplatesApi, LabelTemplate } from './labelTemplatesApi.ts';
+import { labelTemplatesApi, LabelTemplate, TemplateSnapshot } from './labelTemplatesApi.ts';
 import { serialNumbersApi } from './serialNumbersApi.ts';
 import { batchesApi } from './batchesApi.ts';
 
@@ -26,6 +26,8 @@ export interface PrintJobMetadata {
   error_message?: string;
   is_reprint?: boolean;
   reprint_reason?: string;
+  target_serial_id?: string;
+  template_snapshot?: TemplateSnapshot;
 }
 
 export interface PrintJob {
@@ -42,6 +44,8 @@ export interface PrintJob {
   error_message?: string;
   is_reprint?: boolean;
   reprint_reason?: string;
+  target_serial_id?: string;
+  template_snapshot?: TemplateSnapshot;
   created_by?: string | null;
   created_at: string;
   // Joined relations
@@ -69,7 +73,9 @@ function parsePrinterPayload(raw: string, fallbackId: string): PrintJobMetadata 
           failed_labels: Number(parsed.failed_labels) || 0,
           error_message: parsed.error_message || undefined,
           is_reprint: !!parsed.is_reprint,
-          reprint_reason: parsed.reprint_reason || undefined
+          reprint_reason: parsed.reprint_reason || undefined,
+          target_serial_id: parsed.target_serial_id || undefined,
+          template_snapshot: parsed.template_snapshot && typeof parsed.template_snapshot === 'object' ? parsed.template_snapshot : undefined
         };
       }
     }
@@ -129,6 +135,8 @@ export const printJobsApi = {
         error_message: meta.error_message,
         is_reprint: meta.is_reprint,
         reprint_reason: meta.reprint_reason,
+        target_serial_id: meta.target_serial_id,
+        template_snapshot: meta.template_snapshot,
         created_by: row.created_by,
         created_at: row.created_at,
         label_templates: row.label_templates,
@@ -176,6 +184,8 @@ export const printJobsApi = {
       error_message: meta.error_message,
       is_reprint: meta.is_reprint,
       reprint_reason: meta.reprint_reason,
+      target_serial_id: meta.target_serial_id,
+      template_snapshot: meta.template_snapshot,
       created_by: data.created_by,
       created_at: data.created_at,
       label_templates: data.label_templates,
@@ -185,7 +195,9 @@ export const printJobsApi = {
 
   async createJob(params: {
     batchId: string;
-    templateId?: string;
+    templateId: string;
+    targetSerialId?: string;
+    templateSnapshotOverride?: TemplateSnapshot;
     printerName?: string;
     copies?: number;
     userId?: string;
@@ -194,7 +206,9 @@ export const printJobsApi = {
   }): Promise<PrintJob> {
     const { 
       batchId, 
-      templateId, 
+      templateId,
+      targetSerialId,
+      templateSnapshotOverride,
       printerName = 'Zebra ZD220 Direct Thermal', 
       copies = 1, 
       userId,
@@ -216,100 +230,119 @@ export const printJobsApi = {
       throw new Error(`PRINT_VALIDATION_ERROR: Batch ${batch.batch_number || batchId} status is '${batch.status}'. Only SERIALIZED or PRINTED batches are eligible for printing.`);
     }
 
-    // 2. Fetch serials for batch and reject if zero serials exist
+    // 2. Fetch serials for batch and reject if zero serials exist.
     const serials = await serialNumbersApi.search({ batchId });
     if (!serials || serials.length === 0) {
       throw new Error(`PRINT_VALIDATION_ERROR: Cannot create print job for batch ${batch.batch_number || batchId}. No serial numbers exist for this batch.`);
     }
+    const targetSerial = targetSerialId ? serials.find((serial: any) => serial.id === targetSerialId) : null;
+    if (targetSerialId && !targetSerial) {
+      throw new Error('PRINT_VALIDATION_ERROR: The selected reprint serial does not belong to the chosen batch.');
+    }
+    const selectedSerials = targetSerialId ? [targetSerial!] : serials;
 
-    // 3. Resolve template
-    let template: LabelTemplate | null = null;
-    if (templateId && templateId.trim() !== '') {
-      const { data: tData } = await getClient()
-        .from('label_templates')
-        .select('*')
-        .eq('id', templateId)
+    // 3. Resolve the model's category so the chosen template cannot silently cross product categories.
+    let resolvedCategoryId: string | null = null;
+    const categorySerial: any = targetSerial || serials[0];
+    const batchModelId = categorySerial?.model_id || categorySerial?.modelId || categorySerial?.models?.id || null;
+    const prodOrder = Array.isArray((batch as any).production_orders)
+      ? (batch as any).production_orders[0]
+      : (batch as any).production_orders;
+    const lines: any[] = Array.isArray(prodOrder?.production_order_lines)
+      ? prodOrder.production_order_lines
+      : (prodOrder?.production_order_lines ? [prodOrder.production_order_lines] : []);
+    const matchedLine = batchModelId
+      ? lines.find((line: any) => line.model_id === batchModelId)
+      : (lines.length > 0 ? lines[0] : null);
+
+    if (matchedLine?.category_id) {
+      resolvedCategoryId = matchedLine.category_id;
+    } else if (matchedLine?.models?.category_id) {
+      resolvedCategoryId = matchedLine.models.category_id;
+    } else if (matchedLine?.models?.categories?.id) {
+      resolvedCategoryId = matchedLine.models.categories.id;
+    }
+
+    if (!resolvedCategoryId && batch.production_order_id) {
+      let lineQuery = getClient()
+        .from('production_order_lines')
+        .select('id, category_id, model_id, models:models!production_order_lines_model_id_fkey (id, category_id)')
+        .eq('production_order_id', batch.production_order_id);
+      if (batchModelId) lineQuery = lineQuery.eq('model_id', batchModelId);
+      const { data: directLine, error: lineError } = await lineQuery.limit(1).maybeSingle();
+      if (lineError) throw new Error(`PRINT_VALIDATION_ERROR: Could not resolve production category: ${lineError.message}`);
+      if (directLine) resolvedCategoryId = directLine.category_id || (directLine.models as any)?.category_id || null;
+    }
+
+    if (!resolvedCategoryId && batchModelId) {
+      const { data: modelData, error: modelError } = await getClient()
+        .from('models')
+        .select('id, category_id')
+        .eq('id', batchModelId)
         .maybeSingle();
-      if (tData) {
-        const parsed = typeof tData.template_json === 'string' ? JSON.parse(tData.template_json) : tData.template_json;
-        if (tData.is_active && parsed?.status === 'published') {
-          template = { ...tData, template_json: parsed };
-        } else {
-          throw new Error('PRINT_VALIDATION_ERROR: The selected label template is not active and published.');
-        }
-      } else {
-        throw new Error('PRINT_VALIDATION_ERROR: Selected label template not found in database.');
-      }
+      if (modelError) throw new Error(`PRINT_VALIDATION_ERROR: Could not resolve model category: ${modelError.message}`);
+      if (modelData?.category_id) resolvedCategoryId = modelData.category_id;
     }
 
-    if (!template) {
-      // Canonical Resolution: Batch → Production Order → Production Order Line (matching model) → Model → Category
-      let resolvedCategoryId: string | null = null;
-
-      // Identify model from batch serials if present
-      const batchModelId = serials.length > 0 ? ((serials[0] as any).model_id || serials[0].modelId) : null;
-
-      const prodOrder = Array.isArray((batch as any).production_orders)
-        ? (batch as any).production_orders[0]
-        : (batch as any).production_orders;
-
-      const lines: any[] = Array.isArray(prodOrder?.production_order_lines) 
-        ? prodOrder.production_order_lines 
-        : (prodOrder?.production_order_lines ? [prodOrder.production_order_lines] : []);
-
-      // Find matching line for model or first line
-      const matchedLine = batchModelId ? lines.find((l: any) => l.model_id === batchModelId) : (lines.length > 0 ? lines[0] : null);
-
-      if (matchedLine?.category_id) {
-        resolvedCategoryId = matchedLine.category_id;
-      } else if (matchedLine?.models?.category_id) {
-        resolvedCategoryId = matchedLine.models.category_id;
-      } else if (matchedLine?.models?.categories?.id) {
-        resolvedCategoryId = matchedLine.models.categories.id;
-      }
-
-      // If not resolved from joined relation, query direct line on production_order_id
-      if (!resolvedCategoryId && batch.production_order_id) {
-        let lineQuery = getClient()
-          .from('production_order_lines')
-          .select('id, category_id, model_id, models (id, category_id)')
-          .eq('production_order_id', batch.production_order_id);
-
-        if (batchModelId) {
-          lineQuery = lineQuery.eq('model_id', batchModelId);
-        }
-
-        const { data: directLine } = await lineQuery.limit(1).maybeSingle();
-
-        if (directLine) {
-          resolvedCategoryId = directLine.category_id || (directLine.models as any)?.category_id || null;
-        }
-      }
-
-      // If still not resolved, query category directly from the model
-      if (!resolvedCategoryId && batchModelId) {
-        const { data: modelData } = await getClient()
-          .from('models')
-          .select('id, category_id')
-          .eq('id', batchModelId)
-          .maybeSingle();
-        if (modelData?.category_id) {
-          resolvedCategoryId = modelData.category_id;
-        }
-      }
-
-      if (!resolvedCategoryId || resolvedCategoryId.trim() === '') {
-        throw new Error(`PRINT_VALIDATION_ERROR: Product category could not be resolved for batch ${batch.batch_number || batchId}. Production order lines must have a valid category or model.`);
-      }
-
-      template = await labelTemplatesApi.resolveTemplate(resolvedCategoryId, 100, 100);
+    if (!resolvedCategoryId) {
+      throw new Error(`PRINT_VALIDATION_ERROR: Product category could not be resolved for batch ${batch.batch_number || batchId}. Assign the batch's model to an approved category before printing.`);
+    }
+    if (!templateId || !templateId.trim()) {
+      throw new Error('PRINT_VALIDATION_ERROR: Choose an active, published label template before creating a print job. Automatic 100x100 fallback is disabled.');
     }
 
-    if (!template) {
-      throw new Error('PRINT_VALIDATION_ERROR: No active published label template found for printing.');
+    // 4. Load the exact chosen template. No size/category fallback is allowed.
+    const { data: tData, error: templateQueryError } = await getClient()
+      .from('label_templates')
+      .select('*, categories (id, name_ar, name_en)')
+      .eq('id', templateId)
+      .maybeSingle();
+    if (templateQueryError) throw new Error(`PRINT_VALIDATION_ERROR: Could not load selected label template: ${templateQueryError.message}`);
+    if (!tData) throw new Error('PRINT_VALIDATION_ERROR: Selected label template not found in database.');
+    const parsedTemplateJson = typeof tData.template_json === 'string' ? JSON.parse(tData.template_json) : tData.template_json;
+    const template: LabelTemplate = { ...tData, template_json: parsedTemplateJson };
+    const isCurrentTemplatePublished = template.is_active && template.template_json?.status === 'published';
+    if (!isCurrentTemplatePublished && !templateSnapshotOverride) {
+      throw new Error('PRINT_VALIDATION_ERROR: The selected label template is not active and published.');
+    }
+    if (template.category_id !== resolvedCategoryId) {
+      throw new Error(`PRINT_VALIDATION_ERROR: The selected template belongs to a different category than the batch. Choose a template for category ${resolvedCategoryId}.`);
     }
 
-    const totalLabelsCount = serials.length * (copies > 0 ? copies : 1);
+    const jobTemplateSnapshot: TemplateSnapshot = templateSnapshotOverride || {
+      name: template.name,
+      category_id: template.category_id,
+      label_width: template.label_width,
+      label_height: template.label_height,
+      description: template.template_json.description || '',
+      elements: JSON.parse(JSON.stringify(template.template_json.elements)),
+      version: template.template_json.version || '1.0'
+    };
+    if (jobTemplateSnapshot.category_id !== resolvedCategoryId) {
+      throw new Error('PRINT_VALIDATION_ERROR: The saved template snapshot category does not match the batch category.');
+    }
+    const snapshotForValidation: LabelTemplate = {
+      ...template,
+      name: jobTemplateSnapshot.name,
+      category_id: jobTemplateSnapshot.category_id,
+      label_width: jobTemplateSnapshot.label_width,
+      label_height: jobTemplateSnapshot.label_height,
+      is_active: true,
+      template_json: {
+        ...template.template_json,
+        status: 'published',
+        version: jobTemplateSnapshot.version,
+        description: jobTemplateSnapshot.description,
+        elements: jobTemplateSnapshot.elements
+      }
+    };
+    const templateValidation = labelTemplatesApi.validateTemplate(snapshotForValidation);
+    if (!templateValidation.valid) {
+      throw new Error(`PRINT_VALIDATION_ERROR: The selected template snapshot is invalid: ${templateValidation.errors.join(' ')}`);
+    }
+
+    const safeCopies = Number.isInteger(copies) && copies > 0 ? Math.min(copies, 10) : 1;
+    const totalLabelsCount = selectedSerials.length * safeCopies;
     const year = new Date().getFullYear();
     const randomHex = Math.random().toString(36).substring(2, 8).toUpperCase();
     const generatedJobNumber = `JOB-${year}-${randomHex}`;
@@ -324,7 +357,9 @@ export const printJobsApi = {
       printed_labels: 0,
       failed_labels: 0,
       is_reprint: isReprint,
-      reprint_reason: reprintReason
+      reprint_reason: reprintReason,
+      target_serial_id: targetSerialId,
+      template_snapshot: JSON.parse(JSON.stringify(jobTemplateSnapshot))
     };
 
     const { data: inserted, error: insertErr } = await getClient()
@@ -332,7 +367,7 @@ export const printJobsApi = {
       .insert([{
         template_id: template.id,
         printer_name: encodePrinterPayload(metaPayload),
-        copies: copies > 0 ? copies : 1,
+        copies: safeCopies,
         created_by: userId || null
       }])
       .select(`
@@ -351,13 +386,15 @@ export const printJobsApi = {
       batch_id: batchId,
       template_id: template.id,
       printer_name: printerName,
-      copies: copies > 0 ? copies : 1,
+      copies: safeCopies,
       status: 'pending',
       total_labels: totalLabelsCount,
       printed_labels: 0,
       failed_labels: 0,
       is_reprint: isReprint,
       reprint_reason: reprintReason,
+      target_serial_id: targetSerialId,
+      template_snapshot: metaPayload.template_snapshot,
       created_by: row.created_by,
       created_at: row.created_at,
       label_templates: template,
@@ -439,8 +476,8 @@ export const printJobsApi = {
   },
 
   /**
-   * Real Printer Execution Boundary:
-   * Dispatches the thermal payload to the Zebra ZD220 printer driver/gateway.
+   * Fail-closed printer execution boundary.
+   * A real Browser Print renderer/dispatch adapter and physical acceptance tests are still required.
    *
    * REQUIRED STATE RULE:
    * - If printer is OFFLINE before physical execution begins:

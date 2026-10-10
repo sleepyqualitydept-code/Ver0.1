@@ -94,7 +94,6 @@ export default function PrintView({
   const [selectedJobDetails, setSelectedJobDetails] = useState<PrintJob | null>(null);
   const [selectedBatchId, setSelectedBatchId] = useState<string>('');
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
-  const [selectedSizeFormat, setSelectedSizeFormat] = useState<'100x50' | '100x100'>('100x100');
   const [copies, setCopies] = useState<number>(1);
 
   // History & Reprint Search filter states
@@ -145,6 +144,10 @@ export default function PrintView({
 
   // Filter queue jobs from PostgreSQL (pending, processing, paused, failed)
   const queueJobs = printJobs.filter(j => ['pending', 'processing', 'paused', 'failed'].includes(j.status));
+  const publishedTemplates = templates.filter(t => t.is_active && t.template_json?.status === 'published');
+  const selectedPrintTemplate = publishedTemplates.find(t => t.id === selectedTemplateId) || null;
+  const configuredLabelSizes = Array.from(new Set(publishedTemplates.map(t => `${t.label_width}×${t.label_height} mm`)))
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
 
   // Handle Create New Print Job (Status = PENDING, NO AUTOMATIC PRINTING)
   const handleCreatePrintJobSubmit = async (e: React.FormEvent) => {
@@ -157,6 +160,10 @@ export default function PrintView({
       setErrorMsg(lang === 'ar' ? 'يرجى اختيار دفعة إنتاج مجهزة للطباعة' : 'Please select an eligible production batch.');
       return;
     }
+    if (!selectedTemplateId || !publishedTemplates.some(t => t.id === selectedTemplateId)) {
+      setErrorMsg(lang === 'ar' ? 'اختر قالبًا منشورًا ونشطًا قبل إنشاء أمر الطباعة.' : 'Choose an active, published label template before creating the print job.');
+      return;
+    }
 
     setErrorMsg('');
     setSuccessMsg('');
@@ -166,7 +173,7 @@ export default function PrintView({
       // Create Print Job in PostgreSQL in PENDING status
       const newJob = await printJobsApi.createJob({
         batchId: selectedBatchId,
-        templateId: selectedTemplateId || undefined,
+        templateId: selectedTemplateId,
         printerName: 'Zebra ZD220 Direct Thermal',
         copies
       });
@@ -206,7 +213,7 @@ export default function PrintView({
       const job = printJobs.find(j => j.id === jobId);
       if (!job) throw new Error('Job not found.');
 
-      // Execute Real Hardware Print (probes printer connectivity before execution)
+      // Fail-closed hardware boundary: no success is reported unless the execution adapter confirms it.
       const result = await printJobsApi.executePrint(jobId);
 
       if (result.isOffline) {
@@ -300,16 +307,16 @@ export default function PrintView({
     setActionLoading(true);
 
     try {
-      const record = await printHistoryApi.reprintSerial({
+      const reprintJob = await printHistoryApi.reprintSerial({
         serialId: reprintSerialId,
         reason: reprintReason.trim()
       });
 
-      onLogAudit('REPRINT_EXECUTED', `Reprinted serial ${selectedReprintSerial?.serial_number || reprintSerialId}. Reason: ${reprintReason}`);
+      onLogAudit('REPRINT_REQUESTED', `Queued reprint job ${reprintJob.job_number} for serial ${selectedReprintSerial?.serial_number || reprintSerialId}. Reason: ${reprintReason}`);
 
       setSuccessMsg(lang === 'ar'
-        ? `تم إنشاء وتنفيذ إعادة طباعة الملصق التسلسلي (${selectedReprintSerial?.serial_number || reprintSerialId}) بنجاح عبر Zebra ZD220!`
-        : `Successfully recorded reprint for serial label (${selectedReprintSerial?.serial_number || reprintSerialId})!`
+        ? `تم إنشاء أمر إعادة الطباعة (${reprintJob.job_number}) ووضعه في الانتظار. لم تُسجّل الطباعة كمنفذة؛ ستُسجّل بعد نجاح التنفيذ الفعلي.`
+        : `Reprint job (${reprintJob.job_number}) was queued. It is not recorded as printed until physical execution succeeds.`
       );
 
       setReprintSerialId('');
@@ -490,6 +497,7 @@ export default function PrintView({
                     <tr>
                       <th className="p-3">{lang === 'ar' ? 'رقم أمر الطباعة' : 'Job Number'}</th>
                       <th className="p-3">{lang === 'ar' ? 'الدفعة' : 'Batch'}</th>
+                      <th className="p-3">{lang === 'ar' ? 'القالب / المقاس' : 'Template / Size'}</th>
                       <th className="p-3">{lang === 'ar' ? 'الطابعة' : 'Printer'}</th>
                       <th className="p-3">{lang === 'ar' ? 'الكمية' : 'Labels'}</th>
                       <th className="p-3">{lang === 'ar' ? 'الحالة' : 'Status'}</th>
@@ -505,6 +513,12 @@ export default function PrintView({
                         </td>
                         <td className="p-3 font-mono text-slate-700 dark:text-slate-300">
                           {job.production_batches?.batch_number || job.batch_id?.slice(0, 8) || 'N/A'}
+                        </td>
+                        <td className="p-3 text-slate-700 dark:text-slate-300">
+                          <div className="flex flex-col gap-0.5">
+                            <span className="font-semibold">{job.template_snapshot?.name || job.label_templates?.name || (lang === 'ar' ? 'قالب قديم دون لقطة محفوظة' : 'Legacy job without template snapshot')}</span>
+                            <span className="font-mono text-[10px] text-slate-500">{job.template_snapshot ? `${job.template_snapshot.label_width}×${job.template_snapshot.label_height} mm · v${job.template_snapshot.version}` : (job.label_templates ? `${job.label_templates.label_width}×${job.label_templates.label_height} mm` : '—')}</span>
+                          </div>
                         </td>
                         <td className="p-3 text-slate-700 dark:text-slate-300 font-medium">
                           {job.printer_name}
@@ -613,6 +627,7 @@ export default function PrintView({
                 <tr>
                   <th className="p-3">{lang === 'ar' ? 'رقم الأمر' : 'Job Number'}</th>
                   <th className="p-3">{lang === 'ar' ? 'الدفعة' : 'Batch'}</th>
+                  <th className="p-3">{lang === 'ar' ? 'القالب / المقاس' : 'Template / Size'}</th>
                   <th className="p-3">{lang === 'ar' ? 'الكمية' : 'Quantity'}</th>
                   <th className="p-3">{lang === 'ar' ? 'الطابعة' : 'Printer'}</th>
                   <th className="p-3">{lang === 'ar' ? 'الحالة' : 'Status'}</th>
@@ -623,7 +638,7 @@ export default function PrintView({
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {queueJobs.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="text-center py-10 text-slate-400">
+                    <td colSpan={8} className="text-center py-10 text-slate-400">
                       {lang === 'ar' ? 'لا توجد أوامر طباعة معلقة حالياً في صف الانتظار' : 'No pending print jobs in queue.'}
                     </td>
                   </tr>
@@ -636,6 +651,12 @@ export default function PrintView({
                       <td className="p-3 font-mono text-slate-800 dark:text-slate-200 font-bold">
                         {job.production_batches?.batch_number || job.batch_id?.slice(0, 8) || 'N/A'}
                       </td>
+                      <td className="p-3 text-slate-700 dark:text-slate-300">
+                        <div className="flex flex-col gap-0.5">
+                          <span className="font-semibold">{job.template_snapshot?.name || job.label_templates?.name || '—'}</span>
+                          <span className="font-mono text-[10px] text-slate-500">{job.template_snapshot ? `${job.template_snapshot.label_width}×${job.template_snapshot.label_height} mm · v${job.template_snapshot.version}` : (job.label_templates ? `${job.label_templates.label_width}×${job.label_templates.label_height} mm` : (lang === 'ar' ? 'لا توجد لقطة محفوظة' : 'No saved snapshot'))}</span>
+                        </div>
+                      </td>
                       <td className="p-3 font-mono text-emerald-600 font-bold">
                         {job.total_labels} {lang === 'ar' ? 'ملصق' : 'pcs'}
                       </td>
@@ -644,7 +665,7 @@ export default function PrintView({
                           <span className="font-semibold text-slate-800 dark:text-slate-200">{job.printer_name}</span>
                           <span className="inline-flex items-center gap-1 text-[10px] text-amber-600 dark:text-amber-400 font-medium">
                             <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
-                            <span>{lang === 'ar' ? 'الاتصال: غير متصلة (Offline)' : 'Connection: Offline'}</span>
+                            <span>{lang === 'ar' ? 'حالة الاتصال: غير متحققة' : 'Connection: not verified'}</span>
                           </span>
                         </div>
                       </td>
@@ -860,7 +881,7 @@ export default function PrintView({
                 ) : (
                   <>
                     <RotateCcw className="w-4 h-4" />
-                    <span>{lang === 'ar' ? 'تنفيذ إعادة الطباعة عبر Zebra' : 'Execute Reprint via Zebra'}</span>
+                    <span>{lang === 'ar' ? 'إنشاء أمر إعادة الطباعة' : 'Queue Reprint Job'}</span>
                   </>
                 )}
               </button>
@@ -895,11 +916,14 @@ export default function PrintView({
                   </p>
                 </div>
 
-                <div className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col items-center justify-center gap-2">
-                  <div className="w-32 h-10 bg-slate-800 dark:bg-slate-200 rounded flex items-center justify-center text-[10px] font-mono text-white dark:text-slate-900 tracking-widest font-black">
-                    |||| || ||||| |||
-                  </div>
-                  <span className="text-[10px] font-mono text-slate-400">Standard Code128 Format</span>
+                <div className="p-3 bg-amber-50 dark:bg-amber-950/30 rounded-xl border border-amber-200 dark:border-amber-900 flex flex-col items-center justify-center gap-1 text-center">
+                  <AlertTriangle className="w-5 h-5 text-amber-600" />
+                  <span className="text-[10px] font-bold text-amber-800 dark:text-amber-200">
+                    {lang === 'ar' ? 'معاينة بيانات فقط — لم يتم توليد باركود قابل للمسح هنا' : 'Data preview only — no scannable barcode is generated here'}
+                  </span>
+                  <span className="text-[10px] text-amber-700 dark:text-amber-300">
+                    {lang === 'ar' ? 'سيتم اعتماد الباركود داخل محرك الطباعة بعد اكتمال تكامل الطابعة واختباره فعليًا.' : 'Barcode rendering must be validated in the print engine before physical acceptance.'}
+                  </span>
                 </div>
               </div>
             ) : (
@@ -918,11 +942,11 @@ export default function PrintView({
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
               <h3 className="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-2">
                 <Printer className="w-5 h-5 text-indigo-600" />
-                <span>{lang === 'ar' ? 'حالة طابعة زيبرا (Zebra ZD220)' : 'Zebra ZD220 Integration Status'}</span>
+                <span>{lang === 'ar' ? 'تكامل طابعة زيبرا (Zebra ZD220)' : 'Zebra ZD220 Integration Status'}</span>
               </h3>
               <span className="px-2.5 py-1 bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-400 text-xs font-bold rounded-full border border-amber-200/50 flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-amber-500" />
-                <span>{lang === 'ar' ? 'غير متصلة / في انتظار البوابة' : 'Not Connected / Gateway Offline'}</span>
+                <span>{lang === 'ar' ? 'التكامل غير معتمد بعد' : 'Integration not yet validated'}</span>
               </span>
             </div>
 
@@ -937,8 +961,11 @@ export default function PrintView({
               </div>
               <div className="flex justify-between py-2 border-b border-slate-100 dark:border-slate-800">
                 <span className="text-slate-500">{lang === 'ar' ? 'مقاسات الملصقات المعتمدة:' : 'Supported Label Sizes:'}</span>
-                <span className="font-mono font-bold text-indigo-600">100×50 mm / 100×100 mm</span>
+                <span className="font-mono font-bold text-indigo-600 text-right break-words">{configuredLabelSizes.length > 0 ? configuredLabelSizes.join(' / ') : (lang === 'ar' ? 'لا توجد قوالب منشورة' : 'No published templates')}</span>
               </div>
+              <p className="text-[10px] text-amber-700 dark:text-amber-400">
+                {lang === 'ar' ? 'المقاسات أعلاه هي المقاسات المعرفة في القوالب المنشورة، وليست شهادة بأن الطابعة اجتازت اختبارًا ماديًا لكل مقاس.' : 'These are sizes configured in published templates, not proof that physical printing has been validated for each size.'}
+              </p>
               <div className="flex justify-between py-2 border-b border-slate-100 dark:border-slate-800">
                 <span className="text-slate-500">{lang === 'ar' ? 'أوامر الطباعة في صف الانتظار:' : 'Spooler Queue Length:'}</span>
                 <span className="font-mono font-bold text-emerald-600 text-sm">{queueJobs.length} {lang === 'ar' ? 'أمر' : 'jobs'}</span>
@@ -959,7 +986,7 @@ export default function PrintView({
             <div className="space-y-2.5 text-xs text-slate-600 dark:text-slate-400">
               <p className="flex items-start gap-2">
                 <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                <span>{lang === 'ar' ? 'يتم التحقق الحقيقي من اتصال طابعة Zebra ZD220 عبر منفذ USB/الشبكة ولا يتم إيهام المستخدم بنجاح الطباعة دون اتصال فيزيائي.' : 'Physical Zebra ZD220 connectivity is strictly verified. No simulated or fake success states are emitted without confirmed printer integration.'}</span>
+                <span>{lang === 'ar' ? 'تكامل الطابعة الفعلي غير معتمد حتى الآن؛ لا يتم تسجيل نجاح أو تحديث حالة الدفعة والسيريالات دون تأكيد تنفيذ حقيقي.' : 'Physical printer integration is not yet validated. No success or batch/serial status change is recorded without confirmed execution.'}</span>
               </p>
               <p className="flex items-start gap-2">
                 <Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
@@ -996,7 +1023,11 @@ export default function PrintView({
                 <select
                   required
                   value={selectedBatchId}
-                  onChange={(e) => setSelectedBatchId(e.target.value)}
+                  onChange={(e) => {
+                    setSelectedBatchId(e.target.value);
+                    // Template validity depends on the batch category; require a fresh selection.
+                    setSelectedTemplateId('');
+                  }}
                   className="w-full p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-800 dark:text-slate-200 font-mono"
                 >
                   <option value="">{eligibleBatches.length === 0 ? (lang === 'ar' ? 'لا يوجد دفعات مجهزة للطباعة' : 'No batches ready') : (lang === 'ar' ? 'اختر دفعة...' : 'Select Batch...')}</option>
@@ -1034,6 +1065,70 @@ export default function PrintView({
                   </div>
                 </div>
               )}
+
+              <div>
+                <label className="text-xs font-semibold text-slate-600 dark:text-slate-400 block mb-1">
+                  {lang === 'ar' ? 'قالب الملصق المنشور *' : 'Published Label Template *'}
+                </label>
+                <select
+                  required
+                  value={selectedTemplateId}
+                  onChange={(e) => setSelectedTemplateId(e.target.value)}
+                  className="w-full p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-800 dark:text-slate-200"
+                >
+                  <option value="">{lang === 'ar' ? 'اختر قالبًا منشورًا...' : 'Select a published template...'}</option>
+                  {publishedTemplates.map(template => (
+                    <option key={template.id} value={template.id}>
+                      {template.name} — {lang === 'ar' ? (template.categories?.name_ar || template.categories?.name_en || template.category_id) : (template.categories?.name_en || template.categories?.name_ar || template.category_id)} — {template.label_width}×{template.label_height} mm
+                    </option>
+                  ))}
+                </select>
+                {selectedPrintTemplate && (
+                  <div className="mt-2 space-y-2 text-[11px] text-slate-500 dark:text-slate-400">
+                    <p>
+                      {lang === 'ar' ? 'المقاس المختار:' : 'Selected dimensions:'} <strong>{selectedPrintTemplate.label_width}×{selectedPrintTemplate.label_height} mm</strong>
+                      {' · '}{lang === 'ar' ? 'الإصدار:' : 'Version:'} <strong>{selectedPrintTemplate.template_json.version}</strong>
+                    </p>
+                    <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-2">
+                      <div className="mb-1 flex items-center justify-between gap-2">
+                        <span className="font-semibold">{lang === 'ar' ? 'معاينة هندسية للقالب المحفوظ' : 'Saved template geometry preview'}</span>
+                        <span className="font-mono">{selectedPrintTemplate.template_json.elements?.length || 0} {lang === 'ar' ? 'عنصر' : 'elements'}</span>
+                      </div>
+                      <div
+                        className="relative overflow-hidden border border-dashed border-indigo-300 bg-slate-50 dark:bg-slate-800"
+                        style={{
+                          width: `${Math.min(320, Math.max(96, selectedPrintTemplate.label_width * 2))}px`,
+                          aspectRatio: `${selectedPrintTemplate.label_width} / ${selectedPrintTemplate.label_height}`,
+                          maxWidth: '100%'
+                        }}
+                        aria-label={lang === 'ar' ? 'معاينة هندسية فقط، وليست معاينة طباعة نهائية' : 'Geometry preview only, not final print output'}
+                      >
+                        {(selectedPrintTemplate.template_json.elements || []).filter(el => el.visible !== false).map(el => (
+                          <div
+                            key={el.id}
+                            title={`${el.name}: ${el.x},${el.y},${el.width},${el.height} mm`}
+                            className="absolute border border-indigo-500/70 bg-indigo-200/40 overflow-hidden"
+                            style={{
+                              left: `${(el.x / selectedPrintTemplate.label_width) * 100}%`,
+                              top: `${(el.y / selectedPrintTemplate.label_height) * 100}%`,
+                              width: `${(el.width / selectedPrintTemplate.label_width) * 100}%`,
+                              height: `${(el.height / selectedPrintTemplate.label_height) * 100}%`
+                            }}
+                          />
+                        ))}
+                      </div>
+                      <p className="mt-1 text-[10px] text-amber-700 dark:text-amber-400">
+                        {lang === 'ar' ? 'هذه معاينة حدود العناصر فقط؛ لا تثبت صحة الباركود أو الطباعة الفعلية.' : 'Element geometry only; this does not certify barcode rendering or physical output.'}
+                      </p>
+                    </div>
+                  </div>
+                )}
+                {publishedTemplates.length === 0 && (
+                  <p className="mt-2 text-[11px] text-amber-700 dark:text-amber-400">
+                    {lang === 'ar' ? 'لا توجد قوالب نشطة ومنشورة. انشر قالبًا صالحًا من مصمم الملصقات أولًا.' : 'No active published templates are available. Publish a valid template in the Label Designer first.'}
+                  </p>
+                )}
+              </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -1074,7 +1169,7 @@ export default function PrintView({
                 </button>
                 <button
                   type="submit"
-                  disabled={!selectedBatchId || actionLoading}
+                  disabled={!selectedBatchId || !selectedTemplateId || !publishedTemplates.some(t => t.id === selectedTemplateId) || actionLoading}
                   className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"
                 >
                   {actionLoading ? (
@@ -1116,6 +1211,16 @@ export default function PrintView({
                   'bg-indigo-50 text-indigo-700'
                 }`}>
                   {selectedJobDetails.status}
+                </span>
+              </div>
+              <div className="flex justify-between py-1.5 border-b border-slate-100 dark:border-slate-800 gap-4">
+                <span className="text-slate-500">{lang === 'ar' ? 'قالب الملصق:' : 'Label Template:'}</span>
+                <span className="text-right">
+                  <strong>{selectedJobDetails.template_snapshot?.name || selectedJobDetails.label_templates?.name || '—'}</strong>
+                  <br />
+                  <span className="font-mono text-[10px] text-slate-500">
+                    {selectedJobDetails.template_snapshot ? `${selectedJobDetails.template_snapshot.label_width}×${selectedJobDetails.template_snapshot.label_height} mm · v${selectedJobDetails.template_snapshot.version}` : (selectedJobDetails.label_templates ? `${selectedJobDetails.label_templates.label_width}×${selectedJobDetails.label_templates.label_height} mm` : (lang === 'ar' ? 'لا توجد لقطة للقالب' : 'Template snapshot unavailable'))}
+                  </span>
                 </span>
               </div>
               <div className="flex justify-between py-1.5 border-b border-slate-100 dark:border-slate-800">

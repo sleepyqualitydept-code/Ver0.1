@@ -62,8 +62,8 @@ export interface LabelTemplate {
   id: string;
   name: string;
   category_id: string;
-  label_width: number; // 100 mm
-  label_height: number; // 50 or 100 mm
+  label_width: number; // positive whole number in millimeters; custom sizes supported
+  label_height: number; // positive whole number in millimeters; custom sizes supported
   template_json: {
     status: TemplateStatus;
     version: string;
@@ -82,151 +82,137 @@ export interface LabelTemplate {
 // Official brand logo asset path in project
 export const OFFICIAL_SLEEPEE_LOGO_PATH = '/src/assets/images/sleepee_brand_logo_1791210733150.jpg';
 
-// Default standard element layout for NEW templates in editor ONLY
-// NEVER used as print fallback, published fallback, preview fallback, or database fallback.
-export const getDefaultElements = (size: '100x50' | '100x100'): LabelElement[] => {
-  const is100x100 = size === '100x100';
+// Default element layout for NEW templates in the editor only.
+// All coordinates and dimensions are millimeters relative to the saved canvas.
+// The layout scales with the requested width/height and keeps every element inside it.
+export const getDefaultElements = (size: string | { width: number; height: number }): LabelElement[] => {
+  let width: number;
+  let height: number;
+
+  if (typeof size === 'string') {
+    const match = size.toLowerCase().replace(/\s/g, '').match(/^(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)$/);
+    if (!match) throw new Error('TEMPLATE_VALIDATION_ERROR: Size must be provided as WIDTHxHEIGHT in millimeters.');
+    width = Number(match[1]);
+    height = Number(match[2]);
+  } else {
+    width = size.width;
+    height = size.height;
+  }
+
+  assertValidLabelDimensions(width, height);
+
+  const marginX = Math.min(4, width * 0.04);
+  const marginY = Math.min(2, height * 0.04);
+  const innerW = width - (2 * marginX);
+  const innerH = height - (2 * marginY);
+  const gapY = innerH * 0.008;
+  const row = {
+    header: innerH * 0.15,
+    divider: innerH * 0.018,
+    model: innerH * 0.13,
+    size: innerH * 0.12,
+    serial: innerH * 0.12,
+    batch: innerH * 0.10,
+    bottom: innerH * 0.24
+  };
+  const fontBase = Math.max(4, Math.min(14, Math.min(width, height) * 0.20));
+  let y = marginY;
+  const headerY = y; y += row.header + gapY;
+  const dividerY = y; y += row.divider + gapY;
+  const modelY = y; y += row.model + gapY;
+  const sizeY = y; y += row.size + gapY;
+  const serialY = y; y += row.serial + gapY;
+  const batchY = y; y += row.batch + gapY;
+  const bottomY = y;
+
+  const halfGap = innerW * 0.03;
+  const halfW = (innerW - halfGap) / 2;
+  const qrSize = Math.max(Math.min(innerW * 0.22, row.bottom * 0.92), Math.min(innerW, row.bottom) * 0.05);
+  const barcodeWidth = Math.max(innerW - qrSize - halfGap, innerW * 0.35);
+  const fitFont = (factor: number, max = fontBase) => Math.max(3, Math.min(max, fontBase * factor));
 
   return [
     {
-      id: 'el-logo',
-      type: 'logo',
-      name: 'Official Company Logo',
-      x: 5,
-      y: 5,
-      width: 45,
-      height: 18,
-      visible: true,
-      staticValue: OFFICIAL_SLEEPEE_LOGO_PATH
+      id: 'el-logo', type: 'logo', name: 'Official Company Logo',
+      x: marginX, y: headerY, width: innerW * 0.42, height: row.header * 0.9,
+      visible: true, staticValue: OFFICIAL_SLEEPEE_LOGO_PATH
     },
     {
-      id: 'el-brand',
-      type: 'brand',
-      name: 'Brand Name',
-      x: 55,
-      y: 5,
-      width: 40,
-      height: 16,
-      fontSize: 14,
-      fontWeight: 'bold',
-      textAlign: 'right',
-      visible: true,
-      mapping: 'brand'
+      id: 'el-brand', type: 'brand', name: 'Brand Name',
+      x: marginX + innerW * 0.45, y: headerY, width: innerW * 0.55, height: row.header * 0.9,
+      fontSize: fitFont(1.05), fontWeight: 'bold', textAlign: 'right', visible: true, mapping: 'brand'
     },
     {
-      id: 'el-line-1',
-      type: 'line',
-      name: 'Header Divider',
-      x: 5,
-      y: 23,
-      width: 90,
-      height: 2,
-      visible: true
+      id: 'el-line-1', type: 'line', name: 'Header Divider',
+      x: marginX, y: dividerY, width: innerW, height: Math.max(0.01, row.divider * 0.6), visible: true
     },
     {
-      id: 'el-model',
-      type: 'model',
-      name: 'Product Model',
-      x: 5,
-      y: 26,
-      width: 90,
-      height: 14,
-      fontSize: 13,
-      fontWeight: 'bold',
-      textAlign: 'left',
-      visible: true,
-      mapping: 'model'
+      id: 'el-model', type: 'model', name: 'Product Model',
+      x: marginX, y: modelY, width: innerW, height: row.model * 0.92,
+      fontSize: fitFont(1), fontWeight: 'bold', textAlign: 'left', visible: true, mapping: 'model'
     },
     {
-      id: 'el-size',
-      type: 'size',
-      name: 'Dimensions / Size',
-      x: 5,
-      y: 42,
-      width: 45,
-      height: 12,
-      fontSize: 11,
-      textAlign: 'left',
-      visible: true,
-      mapping: 'size'
+      id: 'el-size', type: 'size', name: 'Dimensions / Size',
+      x: marginX, y: sizeY, width: halfW, height: row.size * 0.92,
+      fontSize: fitFont(0.82), textAlign: 'left', visible: true, mapping: 'size'
     },
     {
-      id: 'el-warranty',
-      type: 'warranty',
-      name: 'Warranty Coverage',
-      x: 55,
-      y: 42,
-      width: 40,
-      height: 12,
-      fontSize: 11,
-      textAlign: 'right',
-      visible: true,
-      mapping: 'warranty'
+      id: 'el-warranty', type: 'warranty', name: 'Warranty Coverage',
+      x: marginX + halfW + halfGap, y: sizeY, width: halfW, height: row.size * 0.92,
+      fontSize: fitFont(0.82), textAlign: 'right', visible: true, mapping: 'warranty'
     },
     {
-      id: 'el-serial',
-      type: 'serial',
-      name: 'Serial Number Text',
-      x: 5,
-      y: is100x100 ? 58 : 55,
-      width: 60,
-      height: 12,
-      fontSize: 11,
-      fontWeight: 'bold',
-      textAlign: 'left',
-      visible: true,
-      mapping: 'serial'
+      id: 'el-serial', type: 'serial', name: 'Serial Number Text',
+      x: marginX, y: serialY, width: innerW, height: row.serial * 0.92,
+      fontSize: fitFont(0.9), fontWeight: 'bold', textAlign: 'left', visible: true, mapping: 'serial'
     },
     {
-      id: 'el-batch',
-      type: 'batch',
-      name: 'Batch Number',
-      x: 5,
-      y: is100x100 ? 72 : 68,
-      width: 45,
-      height: 10,
-      fontSize: 10,
-      textAlign: 'left',
-      visible: true,
-      mapping: 'batch'
+      id: 'el-batch', type: 'batch', name: 'Batch Number',
+      x: marginX, y: batchY, width: halfW, height: row.batch * 0.92,
+      fontSize: fitFont(0.72), textAlign: 'left', visible: true, mapping: 'batch'
     },
     {
-      id: 'el-date',
-      type: 'date',
-      name: 'Production Date',
-      x: 55,
-      y: is100x100 ? 72 : 68,
-      width: 40,
-      height: 10,
-      fontSize: 10,
-      textAlign: 'right',
-      visible: true,
-      mapping: 'production_date'
+      id: 'el-date', type: 'date', name: 'Production Date',
+      x: marginX + halfW + halfGap, y: batchY, width: halfW, height: row.batch * 0.92,
+      fontSize: fitFont(0.72), textAlign: 'right', visible: true, mapping: 'production_date'
     },
     {
-      id: 'el-barcode',
-      type: 'barcode',
-      name: 'Linear Barcode (Code128)',
-      x: 5,
-      y: is100x100 ? 84 : 78,
-      width: 60,
-      height: is100x100 ? 14 : 18,
-      visible: true,
-      mapping: 'serial'
+      id: 'el-barcode', type: 'barcode', name: 'Linear Barcode (Code128)',
+      x: marginX, y: bottomY, width: Math.min(barcodeWidth, innerW), height: row.bottom * 0.9,
+      visible: true, mapping: 'serial'
     },
     {
-      id: 'el-qr',
-      type: 'qr',
-      name: 'Warranty QR Code',
-      x: 70,
-      y: is100x100 ? 56 : 52,
-      width: is100x100 ? 25 : 22,
-      height: is100x100 ? 25 : 22,
-      visible: true,
-      mapping: 'serial'
+      id: 'el-qr', type: 'qr', name: 'Warranty QR Code',
+      x: marginX + innerW - qrSize, y: bottomY, width: qrSize, height: Math.min(qrSize, row.bottom * 0.9),
+      visible: true, mapping: 'serial'
     }
   ];
 };
+
+export function assertValidLabelDimensions(width: number, height: number): void {
+  if (!Number.isFinite(width) || !Number.isFinite(height) || !Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) {
+    throw new Error('TEMPLATE_VALIDATION_ERROR: Label width and height must be positive whole numbers in millimeters.');
+  }
+}
+
+export function getLabelElementGeometryErrors(elements: LabelElement[], width: number, height: number): string[] {
+  const errors: string[] = [];
+  if (!Array.isArray(elements)) return ['Template elements must be an array.'];
+
+  elements.forEach((element, index) => {
+    const label = element?.name || element?.id || `Element ${index + 1}`;
+    const numericFields: Array<keyof Pick<LabelElement, 'x' | 'y' | 'width' | 'height'>> = ['x', 'y', 'width', 'height'];
+    if (!element || numericFields.some((key) => !Number.isFinite(element[key]))) {
+      errors.push(`${label}: position and dimensions must be finite numbers.`);
+      return;
+    }
+    if (element.x < 0 || element.y < 0) errors.push(`${label}: X and Y cannot be negative.`);
+    if (element.width <= 0 || element.height <= 0) errors.push(`${label}: element width and height must be greater than zero.`);
+    if (element.x + element.width > width + 0.0001) errors.push(`${label}: element extends beyond the ${width} mm canvas width.`);
+    if (element.y + element.height > height + 0.0001) errors.push(`${label}: element extends beyond the ${height} mm canvas height.`);
+  });
+  return errors;
+}
 
 export const labelTemplatesApi = {
   async getAll(): Promise<LabelTemplate[]> {
@@ -269,8 +255,8 @@ export const labelTemplatesApi = {
   async create(params: {
     name: string;
     categoryId: string;
-    labelWidth: 100;
-    labelHeight: 50 | 100;
+    labelWidth: number;
+    labelHeight: number;
     elements?: LabelElement[];
     createdBy?: string;
     description?: string;
@@ -283,11 +269,15 @@ export const labelTemplatesApi = {
     if (!categoryId || categoryId.trim() === '') {
       throw new Error('TEMPLATE_VALIDATION_ERROR: Product category is required.');
     }
-    if (labelWidth !== 100 || (labelHeight !== 50 && labelHeight !== 100)) {
-      throw new Error('TEMPLATE_VALIDATION_ERROR: Supported label sizes are 100x50 mm and 100x100 mm.');
-    }
+    assertValidLabelDimensions(labelWidth, labelHeight);
 
-    const templateElements = elements && elements.length > 0 ? elements : getDefaultElements(labelHeight === 50 ? '100x50' : '100x100');
+    const templateElements = elements && elements.length > 0
+      ? elements
+      : getDefaultElements({ width: labelWidth, height: labelHeight });
+    const geometryErrors = getLabelElementGeometryErrors(templateElements, labelWidth, labelHeight);
+    if (geometryErrors.length > 0) {
+      throw new Error(`TEMPLATE_VALIDATION_ERROR: ${geometryErrors.join(' ')}`);
+    }
 
     const templateJson = {
       status: 'draft' as TemplateStatus,
@@ -334,7 +324,17 @@ export const labelTemplatesApi = {
     const existing = await this.getById(id);
     if (!existing) throw new Error('TEMPLATE_NOT_FOUND: Template does not exist.');
 
-    const updatedElements = params.elements || existing.template_json.elements;
+    if (params.name !== undefined && !params.name.trim()) {
+      throw new Error('TEMPLATE_VALIDATION_ERROR: Template name cannot be empty.');
+    }
+    const nextWidth = params.labelWidth !== undefined ? params.labelWidth : existing.label_width;
+    const nextHeight = params.labelHeight !== undefined ? params.labelHeight : existing.label_height;
+    assertValidLabelDimensions(nextWidth, nextHeight);
+    const updatedElements = params.elements !== undefined ? params.elements : (existing.template_json.elements || []);
+    const geometryErrors = getLabelElementGeometryErrors(updatedElements, nextWidth, nextHeight);
+    if (geometryErrors.length > 0) {
+      throw new Error(`TEMPLATE_VALIDATION_ERROR: ${geometryErrors.join(' ')}`);
+    }
     const updatedJson = {
       ...existing.template_json,
       elements: updatedElements,
@@ -348,8 +348,8 @@ export const labelTemplatesApi = {
 
     if (params.name) updatePayload.name = params.name.trim();
     if (params.categoryId) updatePayload.category_id = params.categoryId;
-    if (params.labelWidth) updatePayload.label_width = params.labelWidth;
-    if (params.labelHeight) updatePayload.label_height = params.labelHeight;
+    if (params.labelWidth !== undefined) updatePayload.label_width = params.labelWidth;
+    if (params.labelHeight !== undefined) updatePayload.label_height = params.labelHeight;
 
     const { data, error } = await getClient()
       .from('label_templates')
@@ -376,8 +376,8 @@ export const labelTemplatesApi = {
     return this.create({
       name: duplicatedName,
       categoryId: original.category_id,
-      labelWidth: original.label_width as 100,
-      labelHeight: original.label_height as 50 | 100,
+      labelWidth: original.label_width,
+      labelHeight: original.label_height,
       elements: original.template_json.elements,
       createdBy,
       description: `Duplicated from ${original.name} (v${original.template_json.version})`
@@ -388,7 +388,7 @@ export const labelTemplatesApi = {
    * Validates template rules:
    * 1. Name required
    * 2. Category required
-   * 3. Label Size required (100x50 or 100x100)
+   * 3. Label dimensions must be positive whole numbers and all elements must fit within the canvas
    * 4. At least one Dynamic element required
    * 5. At least one Serial representation required
    * 6. QR OR Barcode required
@@ -402,11 +402,14 @@ export const labelTemplatesApi = {
     if (!template.category_id) {
       errors.push('Category assignment is required.');
     }
-    if (template.label_width !== 100 || (template.label_height !== 50 && template.label_height !== 100)) {
-      errors.push('Supported label sizes are 100x50 mm and 100x100 mm.');
+    try {
+      assertValidLabelDimensions(template.label_width, template.label_height);
+    } catch (error) {
+      errors.push(error instanceof Error ? error.message : 'Label dimensions must be positive whole numbers.');
     }
 
     const elements = template.template_json?.elements || [];
+    errors.push(...getLabelElementGeometryErrors(elements, template.label_width, template.label_height));
     if (elements.length === 0) {
       errors.push('Template canvas is empty. Add elements before publishing.');
     }
@@ -563,6 +566,11 @@ export const labelTemplatesApi = {
     const restoredHeight = rawSnapshot.label_height || template.label_height;
     const restoredDescription = rawSnapshot.description !== undefined ? rawSnapshot.description : template.template_json.description;
     const restoredElements: LabelElement[] = Array.isArray(rawSnapshot) ? rawSnapshot : (rawSnapshot.elements || []);
+    assertValidLabelDimensions(restoredWidth, restoredHeight);
+    const restoreGeometryErrors = getLabelElementGeometryErrors(restoredElements, restoredWidth, restoredHeight);
+    if (restoreGeometryErrors.length > 0) {
+      throw new Error(`TEMPLATE_RESTORE_VALIDATION_FAILED: ${restoreGeometryErrors.join(' ')}`);
+    }
 
     // 1. Create a NEW active version without destroying historical records
     const [major, minor] = (template.template_json.version || '1.0').split('.').map(Number);
@@ -633,15 +641,13 @@ export const labelTemplatesApi = {
     };
   },
 
-  async resolveTemplate(categoryId?: string, width = 100, height = 100): Promise<LabelTemplate> {
+  async resolveTemplate(categoryId: string, width: number, height: number): Promise<LabelTemplate> {
     return this.resolveActiveTemplate(categoryId, width, height);
   },
 
-  // EXACT CATEGORY + SIZE MATCH ONLY (FIX 01 - REMOVE CROSS-CATEGORY FALLBACK)
-  async resolveActiveTemplate(categoryId?: string, width = 100, height = 100): Promise<LabelTemplate> {
-    if (width !== 100 || (height !== 50 && height !== 100)) {
-      throw new Error(`UNSUPPORTED_LABEL_SIZE: Supported label sizes are 100x50 mm and 100x100 mm.`);
-    }
+  // Resolve only an exact, explicitly supplied category and size.
+  async resolveActiveTemplate(categoryId: string, width: number, height: number): Promise<LabelTemplate> {
+    assertValidLabelDimensions(width, height);
 
     if (!categoryId || categoryId.trim() === '') {
       throw new Error('TEMPLATE_NOT_FOUND: Product category is required to resolve active label template.');
@@ -669,10 +675,12 @@ export const labelTemplatesApi = {
     if (data) {
       const parsedJson = typeof data.template_json === 'string' ? JSON.parse(data.template_json) : data.template_json;
       if (parsedJson?.status === 'published') {
-        return {
-          ...data,
-          template_json: parsedJson
-        };
+        const resolved: LabelTemplate = { ...data, template_json: parsedJson };
+        const validation = this.validateTemplate(resolved);
+        if (!validation.valid) {
+          throw new Error(`TEMPLATE_VALIDATION_FAILED: ${validation.errors.join(' ')}`);
+        }
+        return resolved;
       }
     }
 
