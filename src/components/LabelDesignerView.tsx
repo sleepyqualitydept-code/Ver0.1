@@ -790,8 +790,8 @@ export default function LabelDesignerView({
       const created = await labelTemplatesApi.create({
         name: newTemplateName.trim(),
         categoryId: newCategoryId,
-        labelWidth,
-        labelHeight
+        labelWidth: labelWidth as 100,
+        labelHeight: labelHeight as 50 | 100
       });
 
       onLogAudit?.('TEMPLATE_CREATED', `Created label template ${created.name} (${created.label_width}x${created.label_height}mm)`);
