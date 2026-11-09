@@ -43,9 +43,9 @@ export const translations = {
     role_prod_manager: 'مدير الإنتاج',
     role_prod_operator: 'مشغل الإنتاج',
     role_print_operator: 'مشغل الطباعة',
-    role_warranty_officer: 'مسؤول الضمان',
-    role_cs_agent: 'وكيل خدمة العملاء',
-    role_service_manager: 'مدير الخدمات',
+    role_warranty_officer: 'مدير الضمان',
+    role_cs_agent: 'مسؤول خدمة العملاء',
+    role_service_manager: 'دور غير معتمد في المرجعية',
 
     // Dashboard KPIs
     kpi_orders: 'أوامر الإنتاج',
@@ -192,7 +192,6 @@ export const translations = {
     replacement_approved: 'معتمد وجار الاستبدال والتجهيز',
     replacement_issued: 'تم إصدار المستند والتسليم',
     replacement_completed: 'تم الاكتمال والاستلام',
-    replacement_denied: 'مرفوض لعدم مطابقة شروط الضمان',
     request_replacement: 'تسجيل طلب استبدال جديد مع المحافظة على التتبع التاريخي',
     reason_label: 'سبب طلب الاستبدال بالتفصيل',
     submit_replacement: 'تقديم طلب الاستبدال للمراجعة الفنية',
@@ -272,9 +271,9 @@ export const translations = {
     role_prod_manager: 'Production Manager',
     role_prod_operator: 'Production Operator',
     role_print_operator: 'Printing Operator',
-    role_warranty_officer: 'Warranty Officer',
-    role_cs_agent: 'Customer Service Agent',
-    role_service_manager: 'Service Manager',
+    role_warranty_officer: 'Warranty Manager',
+    role_cs_agent: 'Customer Service User',
+    role_service_manager: 'Role not in the authoritative reference',
 
     // Dashboard KPIs
     kpi_orders: 'Production Orders',
@@ -421,7 +420,6 @@ export const translations = {
     replacement_approved: 'Approved, Pending Serial Pack',
     replacement_issued: 'Replacement Document Issued',
     replacement_completed: 'Received by Customer',
-    replacement_denied: 'Rejected, Breach of Warranty Policy',
     request_replacement: 'Initiate Replacement Request (Preserve History)',
     reason_label: 'Detailed Claims & Breakdown Cause',
     submit_replacement: 'Submit Replacement for Technical Board Review',

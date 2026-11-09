@@ -61,7 +61,7 @@ export default function PrintView({
   brands,
   models,
   lang,
-  currentRole = 'Administrator',
+  currentRole = 'Unassigned',
   onUpdateBatchStatus,
   onUpdateSerialsStatus,
   onLogAudit
@@ -75,7 +75,7 @@ export default function PrintView({
   // Role permissions evaluation
   const isOperatorOrAdmin = ['Administrator', 'Printing Operator'].includes(currentRole);
   const isProductionManager = ['Administrator', 'Printing Operator', 'Production Manager'].includes(currentRole);
-  const isReadOnly = ['Warranty Officer', 'Customer Service Agent', 'Service Manager', 'Read Only User'].includes(currentRole);
+  const isReadOnly = ['Warranty Manager', 'Customer Service User', 'Read Only User'].includes(currentRole);
 
   // Database-backed states
   const [printJobs, setPrintJobs] = useState<PrintJob[]>([]);

@@ -57,8 +57,9 @@ export default function ReportsView({
 
   // Filtered lists
   const filteredOrders = orders.filter(o => {
-    const matchBrand = selectedBrandFilter === 'all' || o.brandId === selectedBrandFilter;
-    const matchCat = selectedCategoryFilter === 'all' || o.category === selectedCategoryFilter;
+    const lines = Array.isArray(o.production_order_lines) ? o.production_order_lines : [];
+    const matchBrand = selectedBrandFilter === 'all' || o.brandId === selectedBrandFilter || lines.some((line: any) => line.brand_id === selectedBrandFilter);
+    const matchCat = selectedCategoryFilter === 'all' || o.category === selectedCategoryFilter || lines.some((line: any) => line.category_id === selectedCategoryFilter);
     return matchBrand && matchCat;
   });
 
@@ -77,17 +78,29 @@ export default function ReportsView({
     if (dataType === 'production') {
       filename = `sleepee-production-orders-${new Date().getFullYear()}.csv`;
       headers = ['Order ID', 'Type', 'Category', 'Brand', 'Model', 'Size', 'Qty', 'Status', 'Date'];
-      rows = orders.map(o => [
-        o.id,
-        o.type,
-        o.category,
-        brands.find(b => b.id === o.brandId)?.nameEn || o.brandId,
-        models.find(m => m.id === o.modelId)?.name || o.modelId,
-        o.size,
-        o.quantity.toString(),
-        o.status,
-        new Date(o.createdAt).toLocaleDateString()
-      ]);
+      rows = filteredOrders.flatMap((o: any) => {
+        const lines = Array.isArray(o.production_order_lines) ? o.production_order_lines : [];
+        const date = o.created_at || o.createdAt;
+        if (lines.length === 0) {
+          return [[o.order_number || o.orderNumber || o.id, '', '', '', '', '', '', o.status || '', date ? new Date(date).toLocaleDateString() : '']];
+        }
+        return lines.map((line: any) => {
+          const brand = brands.find(b => b.id === line.brand_id);
+          const model = models.find(m => m.id === line.model_id);
+          const size = line.width_cm && line.length_cm ? `${line.width_cm}×${line.length_cm} cm` : '';
+          return [
+            o.order_number || o.orderNumber || o.id,
+            line.project_name ? 'project' : '',
+            line.category_id || '',
+            brand?.nameEn || brand?.name_en || line.brand_id || '',
+            model?.nameEn || model?.name_en || model?.name || line.model_id || '',
+            size,
+            Number(line.quantity || 0).toString(),
+            o.status || '',
+            date ? new Date(date).toLocaleDateString() : ''
+          ];
+        });
+      });
     } else if (dataType === 'warranty') {
       filename = `sleepee-warranty-registry-${new Date().getFullYear()}.csv`;
       headers = ['Serial ID', 'Category', 'Brand', 'Model', 'Size', 'Status', 'Active', 'Duration (Years)', 'Start', 'End', 'Customer Name', 'Phone', 'Governorate'];

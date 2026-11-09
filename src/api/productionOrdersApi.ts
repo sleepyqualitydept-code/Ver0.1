@@ -5,6 +5,30 @@
 
 import { supabase } from '../lib/supabase.ts';
 
+function mapProductionOrder(row: any) {
+  const lines = Array.isArray(row?.production_order_lines) ? row.production_order_lines : [];
+  const distinct = (key: string) => Array.from(new Set(lines.map((line: any) => line?.[key]).filter((value: any) => value !== null && value !== undefined && value !== '')));
+  const brands = distinct('brand_id');
+  const models = distinct('model_id');
+  const categories = distinct('category_id');
+  const dimensions = distinct('width_cm').length === 1 && distinct('length_cm').length === 1
+    ? `${distinct('width_cm')[0]}×${distinct('length_cm')[0]}` : '';
+  const totalQuantity = lines.reduce((sum: number, line: any) => sum + (Number.isFinite(Number(line?.quantity)) ? Number(line.quantity) : 0), 0);
+  return {
+    ...row,
+    orderNumber: row?.order_number || '',
+    createdAt: row?.created_at || '',
+    updatedAt: row?.updated_at || '',
+    quantity: totalQuantity,
+    brandId: brands.length === 1 ? brands[0] : '',
+    modelId: models.length === 1 ? models[0] : '',
+    category: categories.length === 1 ? categories[0] : '',
+    size: dimensions,
+    // A multi-line order remains represented by production_order_lines; do not fabricate a type.
+    type: row?.type || (lines.length === 1 && lines[0]?.project_name ? 'project' : undefined)
+  };
+}
+
 const getClient = () => {
   if (!supabase) throw new Error('Supabase client is not initialized.');
   return supabase;
@@ -26,7 +50,7 @@ export const productionOrdersApi = {
       `)
       .order('created_at', { ascending: false });
     if (error) throw error;
-    return data || [];
+    return (data || []).map(mapProductionOrder);
   },
 
   async getById(id: string) {
@@ -45,7 +69,7 @@ export const productionOrdersApi = {
       .eq('id', id)
       .single();
     if (error) throw error;
-    return data;
+    return data ? mapProductionOrder(data) : null;
   },
 
   async createOrder(lines: any[], userId?: string) {
@@ -82,10 +106,15 @@ export const productionOrdersApi = {
       category_id: (line.category_id && String(line.category_id).trim() !== '') ? line.category_id : null,
       brand_id: (line.brand_id && String(line.brand_id).trim() !== '') ? line.brand_id : null,
       model_id: (line.model_id && String(line.model_id).trim() !== '') ? line.model_id : null,
+      mattress_size_id: (line.mattress_size_id && String(line.mattress_size_id).trim() !== '') ? line.mattress_size_id : null,
       width_cm: line.width_cm,
       length_cm: line.length_cm,
       height_cm: line.height_cm,
       quantity: line.quantity,
+      project_name: line.project_name || null,
+      project_customer_id: line.project_customer_id || null,
+      project_reference: line.project_reference || null,
+      project_specifications: line.project_specifications || null,
       notes: line.notes || ''
     }));
 
@@ -99,7 +128,7 @@ export const productionOrdersApi = {
       throw linesErr;
     }
 
-    return order;
+    return mapProductionOrder(order);
   },
 
   async updateOrderLines(orderId: string, lines: any[]) {
@@ -111,33 +140,26 @@ export const productionOrdersApi = {
       if (!Number.isInteger(Number(line.quantity)) || Number(line.quantity) <= 0) throw new Error(`PRODUCTION_VALIDATION_ERROR: Line ${index + 1} quantity must be a positive integer.`);
     });
 
-    // Delete existing lines only after validating replacement data
-    const { error: deleteErr } = await client
-      .from('production_order_lines')
-      .delete()
-      .eq('production_order_id', orderId);
-
-    if (deleteErr) throw deleteErr;
-
-    // Insert new lines
-    const linesToInsert = lines.map(line => ({
-      production_order_id: orderId,
-      product_type_id: (line.product_type_id && String(line.product_type_id).trim() !== '') ? line.product_type_id : null,
-      category_id: (line.category_id && String(line.category_id).trim() !== '') ? line.category_id : null,
-      brand_id: (line.brand_id && String(line.brand_id).trim() !== '') ? line.brand_id : null,
-      model_id: (line.model_id && String(line.model_id).trim() !== '') ? line.model_id : null,
-      width_cm: line.width_cm,
-      length_cm: line.length_cm,
-      height_cm: line.height_cm,
-      quantity: line.quantity,
-      notes: line.notes || ''
-    }));
-
-    const { error: linesErr } = await client
-      .from('production_order_lines')
-      .insert(linesToInsert);
-
-    if (linesErr) throw linesErr;
+    const { error } = await client.rpc('replace_production_order_lines_v1', {
+      p_order_id: orderId,
+      p_lines: lines.map(line => ({
+        product_type_id: line.product_type_id,
+        category_id: line.category_id,
+        brand_id: line.brand_id,
+        model_id: line.model_id,
+        mattress_size_id: line.mattress_size_id || null,
+        width_cm: Number(line.width_cm),
+        length_cm: Number(line.length_cm),
+        height_cm: Number(line.height_cm),
+        quantity: Number(line.quantity),
+        project_name: line.project_name || null,
+        project_customer_id: line.project_customer_id || null,
+        project_reference: line.project_reference || null,
+        project_specifications: line.project_specifications || null,
+        notes: line.notes || null
+      }))
+    });
+    if (error) throw error;
 
     return true;
   },

@@ -17,7 +17,7 @@ export const brandsApi = {
       .select('*')
       .order('id');
     if (error) throw error;
-    return data;
+    return (data || []).map((row: any) => ({ ...row, nameAr: row.name_ar, nameEn: row.name_en }));
   },
 
   async insert(brand: { id: string; name_ar: string; name_en: string }) {
@@ -26,6 +26,7 @@ export const brandsApi = {
       .insert([brand])
       .select();
     if (error) throw error;
-    return data?.[0];
+    const row = data?.[0];
+    return row ? { ...row, nameAr: row.name_ar, nameEn: row.name_en } : null;
   }
 };

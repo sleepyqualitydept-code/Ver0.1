@@ -105,7 +105,6 @@ function AppContent() {
   const [authEmail, setAuthEmail] = useState<string>('');
   const [authPassword, setAuthPassword] = useState<string>('');
   const [authName, setAuthName] = useState<string>('');
-  const [authRole, setAuthRole] = useState<string>('Administrator');
   const [authError, setAuthError] = useState<string>('');
   const [authSuccess, setAuthSuccess] = useState<string>('');
 
@@ -213,8 +212,10 @@ function AppContent() {
 
     try {
       if (isSignUpMode) {
-        await signUp(authEmail, authPassword, authName, authRole);
-        setAuthSuccess('Account created successfully!');
+        await signUp(authEmail, authPassword, authName);
+        setAuthSuccess(lang === 'ar'
+          ? 'تم إنشاء الحساب. سيظل دون صلاحية تشغيل حتى يعيّن المسؤول الدور المناسب.'
+          : 'Account created. It will remain unassigned until an Administrator assigns a role.');
       } else {
         await signIn(authEmail, authPassword);
       }
@@ -297,7 +298,12 @@ function AppContent() {
 
   const handleUpdateReplacementStatus = async (repId: string, status: ReplacementCase['status'], newSerialId?: string) => {
     await replacementsApi.updateStatus(repId, status, newSerialId);
-    setReplacements(prev => prev.map(r => r.id === repId ? { ...r, status, newSerialId } : r));
+    const [updatedReplacements, updatedSerials] = await Promise.all([
+      replacementsApi.getAll(),
+      serialNumbersApi.getAll()
+    ]);
+    setReplacements(updatedReplacements);
+    setSerials(updatedSerials);
     logAudit('UPDATE_REPLACEMENT_STATUS', `Updated Replacement ${repId} to ${status}`, repId, 'replacement_requests');
   };
 
@@ -421,22 +427,11 @@ function AppContent() {
             </div>
 
             {isSignUpMode && (
-              <div className="flex flex-col gap-1">
-                <label className="text-slate-600 font-semibold">{t.role} *</label>
-                <select
-                  value={authRole}
-                  onChange={(e) => setAuthRole(e.target.value)}
-                  className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-800"
-                >
-                  <option value="Administrator">Administrator</option>
-                  <option value="Production Manager">Production Manager</option>
-                  <option value="Production Operator">Production Operator</option>
-                  <option value="Printing Operator">Printing Operator</option>
-                  <option value="Warranty Officer">Warranty Officer</option>
-                  <option value="Customer Service Agent">Customer Service Agent</option>
-                  <option value="Service Manager">Service Manager</option>
-                </select>
-              </div>
+              <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">
+                {lang === 'ar'
+                  ? 'لأمان الصلاحيات، لا يختار المستخدم دوره أثناء التسجيل. يعيّن المسؤول الدور من لوحة إدارة المستخدمين بعد إنشاء الحساب.'
+                  : 'For access safety, users cannot choose their own role during sign-up. An Administrator assigns the role after the account is created.'}
+              </p>
             )}
 
             {authError && (
@@ -569,7 +564,7 @@ function AppContent() {
       <div className="flex-1 flex overflow-hidden">
         <Sidebar
           lang={lang}
-          userRole={user?.role || 'Administrator'}
+          userRole={user?.role || 'Unassigned'}
         />
 
         <main className={`flex-1 p-6 overflow-y-auto ${isDarkMode ? 'bg-slate-950 text-slate-100' : 'bg-slate-100 text-slate-800'}`}>
@@ -578,7 +573,7 @@ function AppContent() {
               <Route path="/" element={<Navigate to="/dashboard" replace />} />
               
               <Route path="/dashboard/*" element={
-                <ProtectedRoute allowedRoles={['Administrator', 'Production Manager', 'Production Operator', 'Printing Operator', 'Warranty Officer', 'Customer Service Agent', 'Service Manager']}>
+                <ProtectedRoute allowedRoles={['Administrator', 'Production Manager', 'Production Operator', 'Printing Operator', 'Customer Service User', 'Warranty Manager', 'Read Only User']}>
                   <DashboardView orders={orders} serials={serials} cases={cases} replacements={replacements} lang={lang} onNavigateTo={(t) => navigate(`/${t}`)} />
                 </ProtectedRoute>
               } />
@@ -591,19 +586,19 @@ function AppContent() {
 
               <Route path="/manufacturing-engineering/*" element={
                 <ProtectedRoute allowedRoles={['Administrator', 'Production Manager']}>
-                  <ManufacturingEngineeringView models={models} brands={brands} currentRole={user?.role || 'Administrator'} lang={lang} onLogAudit={logAudit} />
+                  <ManufacturingEngineeringView models={models} brands={brands} currentRole={user?.role || 'Unassigned'} lang={lang} onLogAudit={logAudit} />
                 </ProtectedRoute>
               } />
 
               <Route path="/production/wizard" element={
-                <ProtectedRoute allowedRoles={['Administrator', 'Production Manager', 'Production Operator']}>
-                  <ProductionWizardView orders={orders} batches={batches} serials={serials} brands={brands} models={models} categories={categories} productSizes={productSizes} productTypes={productTypes} currentRole={user?.role || 'Administrator'} lang={lang} onAddOrder={handleAddOrder} onUpdateOrderStatus={handleUpdateOrderStatus} onGenerateSerials={handleGenerateSerials} onCreateBatch={handleCreateBatch} />
+                <ProtectedRoute allowedRoles={['Administrator', 'Production Manager']}>
+                  <ProductionWizardView orders={orders} batches={batches} serials={serials} brands={brands} models={models} categories={categories} productSizes={productSizes} productTypes={productTypes} currentRole={user?.role || 'Unassigned'} lang={lang} onAddOrder={handleAddOrder} onUpdateOrderStatus={handleUpdateOrderStatus} onGenerateSerials={handleGenerateSerials} onCreateBatch={handleCreateBatch} />
                 </ProtectedRoute>
               } />
 
               <Route path="/production/*" element={
                 <ProtectedRoute allowedRoles={['Administrator', 'Production Manager', 'Production Operator']}>
-                  <ProductionView orders={orders} batches={batches} serials={serials} brands={brands} models={models} categories={categories} currentRole={user?.role || 'Administrator'} lang={lang} productSizes={productSizes} onAddOrder={handleAddOrder} onUpdateOrderStatus={handleUpdateOrderStatus} onGenerateSerials={(id) => handleGenerateSerials(id)} onCreateBatch={handleCreateBatch} productTypes={productTypes} />
+                  <ProductionView orders={orders} batches={batches} serials={serials} brands={brands} models={models} categories={categories} currentRole={user?.role || 'Unassigned'} lang={lang} productSizes={productSizes} onAddOrder={handleAddOrder} onUpdateOrderStatus={handleUpdateOrderStatus} onGenerateSerials={(id) => handleGenerateSerials(id)} onCreateBatch={handleCreateBatch} productTypes={productTypes} />
                 </ProtectedRoute>
               } />
 
@@ -614,13 +609,13 @@ function AppContent() {
               } />
 
               <Route path="/printing/*" element={
-                <ProtectedRoute allowedRoles={['Administrator', 'Printing Operator', 'Production Manager', 'Production Operator', 'Warranty Officer', 'Customer Service Agent', 'Service Manager']}>
-                  <PrintView batches={batches} serials={serials} brands={brands} models={models} lang={lang} currentRole={user?.role || 'Administrator'} onUpdateBatchStatus={handleUpdateBatchStatus} onUpdateSerialsStatus={handleUpdateSerialsStatus} onLogAudit={logAudit} />
+                <ProtectedRoute allowedRoles={['Administrator', 'Printing Operator', 'Production Manager', 'Read Only User']}>
+                  <PrintView batches={batches} serials={serials} brands={brands} models={models} lang={lang} currentRole={user?.role || 'Unassigned'} onUpdateBatchStatus={handleUpdateBatchStatus} onUpdateSerialsStatus={handleUpdateSerialsStatus} onLogAudit={logAudit} />
                 </ProtectedRoute>
               } />
 
               <Route path="/label-designer/*" element={
-                <ProtectedRoute allowedRoles={['Administrator', 'Printing Operator', 'Production Manager', 'Production Operator', 'Warranty Officer', 'Customer Service Agent', 'Service Manager']}>
+                <ProtectedRoute allowedRoles={['Administrator', 'Printing Operator', 'Production Manager']}>
                   <LabelDesignerView 
                     lang={lang} 
                     categories={categories} 
@@ -632,14 +627,14 @@ function AppContent() {
                     policies={policies}
                     productSizes={productSizes}
                     productTypes={productTypes}
-                    currentRole={user?.role || 'Administrator'} 
+                    currentRole={user?.role || 'Unassigned'} 
                     onLogAudit={logAudit} 
                   />
                 </ProtectedRoute>
               } />
 
               <Route path="/warranty/*" element={
-                <ProtectedRoute allowedRoles={['Administrator', 'Warranty Officer', 'Customer Service Agent', 'Service Manager', 'Production Manager', 'Production Operator', 'Printing Operator', 'Read Only User']}>
+                <ProtectedRoute allowedRoles={['Administrator', 'Warranty Manager', 'Customer Service User', 'Read Only User']}>
                   <WarrantyView 
                     serials={serials} 
                     brands={brands} 
@@ -649,26 +644,26 @@ function AppContent() {
                     orders={orders}
                     policies={policies} 
                     lang={lang} 
-                    currentRole={user?.role || 'Administrator'}
+                    currentRole={user?.role || 'Unassigned'}
                     onLogAudit={logAudit} 
                   />
                 </ProtectedRoute>
               } />
 
               <Route path="/customer-service/*" element={
-                <ProtectedRoute allowedRoles={['Administrator', 'Customer Service Agent', 'Service Manager']}>
+                <ProtectedRoute allowedRoles={['Administrator', 'Customer Service User']}>
                   <CustomerServiceView serials={serials} customers={customers} cases={cases} brands={brands} models={models} orders={orders} lang={lang} currentUser={user} onAddCase={handleAddCase} onAddTimelineNote={handleAddTimelineNote} onUpdateCaseStatus={handleUpdateCaseStatus} />
                 </ProtectedRoute>
               } />
 
               <Route path="/replacement/*" element={
-                <ProtectedRoute allowedRoles={['Administrator', 'Service Manager']}>
-                  <ReplacementsView replacements={replacements} cases={cases} serials={serials} brands={brands} models={models} lang={lang} onAddReplacement={handleAddReplacement} onUpdateReplacementStatus={handleUpdateReplacementStatus} onLogAudit={logAudit} />
+                <ProtectedRoute allowedRoles={['Administrator', 'Customer Service User']}>
+                  <ReplacementsView replacements={replacements} cases={cases} serials={serials} brands={brands} models={models} lang={lang} currentRole={user?.role || 'Unassigned'} onAddReplacement={handleAddReplacement} onUpdateReplacementStatus={handleUpdateReplacementStatus} onLogAudit={logAudit} />
                 </ProtectedRoute>
               } />
 
               <Route path="/reports/*" element={
-                <ProtectedRoute allowedRoles={['Administrator', 'Production Manager', 'Service Manager', 'Warranty Officer']}>
+                <ProtectedRoute allowedRoles={['Administrator', 'Production Manager', 'Customer Service User', 'Warranty Manager', 'Read Only User']}>
                   <ReportsView orders={orders} serials={serials} cases={cases} brands={brands} models={models} lang={lang} />
                 </ProtectedRoute>
               } />

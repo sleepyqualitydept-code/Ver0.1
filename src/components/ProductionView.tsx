@@ -124,7 +124,7 @@ export default function ProductionView({
   }, [categories, brands, models, productSizes, productTypes]);
 
   // Roles & Permissions check
-  const isReadOnly = ['Printing Operator', 'Warranty Officer', 'Customer Service Agent', 'Service Manager', 'Read Only User'].includes(currentRole);
+  const isReadOnly = ['Printing Operator', 'Warranty Manager', 'Customer Service User', 'Read Only User'].includes(currentRole);
   const isManagerOrAdmin = ['Administrator', 'Production Manager'].includes(currentRole);
   const isOperatorOrAbove = ['Administrator', 'Production Manager', 'Production Operator'].includes(currentRole);
 
@@ -1043,8 +1043,8 @@ export default function ProductionView({
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {batches.map((b) => {
-                const orderNo = b.production_orders?.order_number || 'ORD-2026-X';
-                const totalBatchQty = b.quantity || 10; // compatibility or mapped from lines
+                const orderNo = b.production_orders?.order_number || (lang === 'ar' ? 'أمر غير مرتبط/غير متاح' : 'Order unavailable');
+                const totalBatchQty = Number.isFinite(Number(b.quantity)) ? Number(b.quantity) : 0;
 
                 return (
                   <div key={b.id} className="bg-slate-50/50 border border-slate-200/60 p-4 rounded-2xl flex flex-col justify-between space-y-4 shadow-sm hover:border-indigo-500/50 transition-colors">
@@ -1053,7 +1053,8 @@ export default function ProductionView({
                         <h4 className="font-mono font-black text-slate-800 text-xs">
                           {b.batch_number || b.id.slice(0, 12).toUpperCase()}
                         </h4>
-                        <span className="text-[10px] text-slate-400 block mt-0.5">Linked Order: {orderNo}</span>
+                        <span className="text-[10px] text-slate-400 block mt-0.5">{lang === 'ar' ? 'أمر الإنتاج:' : 'Production order:'} {orderNo}</span>
+                        <span className="text-[10px] text-slate-500 block mt-1">{lang === 'ar' ? 'إجمالي كمية البنود:' : 'Total line quantity:'} {totalBatchQty > 0 ? totalBatchQty : (lang === 'ar' ? 'غير متاحة' : 'unavailable')}</span>
                       </div>
                       
                       <span className={`text-[9px] font-black px-2 py-0.5 rounded-md ${

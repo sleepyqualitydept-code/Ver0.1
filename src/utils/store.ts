@@ -164,6 +164,7 @@ export interface Serial {
   customerAddress: string;
   invoiceNo: string;
   invoiceDate: string;
+  customerId?: string;
   activationSource: string;
 
   serial_number?: string;
@@ -297,10 +298,16 @@ export interface ServiceAttachment {
 }
 
 export interface ReplacementCase {
-  id: string; // UUID
+  id: string; // UUID of replacement_requests row
+  /** UUID of the linked service_cases row. Keep this separate from display identifiers. */
+  serviceCaseId: string;
+  /** Human-readable CS case number, not a database UUID. */
   caseId: string;
+  /** UUID of the original serial_numbers row. */
   originalSerialId: string;
-  status: 'requested' | 'under_review' | 'approved' | 'issued' | 'completed' | 'denied';
+  /** Human-readable serial number for display. */
+  originalSerialNumber?: string;
+  status: 'requested' | 'under_review' | 'approved' | 'issued' | 'completed';
   reason: string;
   createdAt: string;
 
@@ -310,7 +317,10 @@ export interface ReplacementCase {
   serial_id?: string;
   created_at?: string;
   updated_at?: string;
+  /** UUID of replacement serial_numbers row; never a client-generated serial string. */
   newSerialId?: string;
+  newSerialNumber?: string;
+  caseNumber?: string;
   reviewedBy?: string;
   approvedAt?: string;
 }

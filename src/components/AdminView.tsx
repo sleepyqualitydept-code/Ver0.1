@@ -439,9 +439,9 @@ export default function AdminView({
                         <option value="Production Manager">Production Manager</option>
                         <option value="Production Operator">Production Operator</option>
                         <option value="Printing Operator">Printing Operator</option>
-                        <option value="Warranty Officer">Warranty Officer</option>
-                        <option value="Customer Service Agent">Customer Service Agent</option>
-                        <option value="Service Manager">Service Manager</option>
+                        <option value="Customer Service User">Customer Service User</option>
+                        <option value="Warranty Manager">Warranty Manager</option>
+                        <option value="Read Only User">Read Only User</option>
                       </select>
                     </div>
                   ))}

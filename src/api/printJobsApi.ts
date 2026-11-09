@@ -402,36 +402,16 @@ export const printJobsApi = {
     };
   },
 
-  async updateJobStatus(jobId: string, status: PrintJobStatus, extra?: {
-    printed_labels?: number;
-    failed_labels?: number;
-    error_message?: string;
-  }): Promise<void> {
-    const { data: existing, error: fetchErr } = await getClient()
-      .from('print_jobs')
-      .select('*')
-      .eq('id', jobId)
-      .maybeSingle();
-
-    if (fetchErr || !existing) {
-      throw new Error('PRINT_JOB_NOT_FOUND: Print job does not exist.');
+  async updateJobStatus(jobId: string, status: PrintJobStatus): Promise<void> {
+    if (status === 'printed') {
+      throw new Error('PRINT_STATUS_BLOCKED: Only a physically validated print adapter may record a printed result.');
     }
-
-    const meta = parsePrinterPayload(existing.printer_name, existing.id);
-    meta.status = status;
-    if (extra?.printed_labels !== undefined) meta.printed_labels = extra.printed_labels;
-    if (extra?.failed_labels !== undefined) meta.failed_labels = extra.failed_labels;
-    if (extra?.error_message !== undefined) meta.error_message = extra.error_message;
-
-    const { data: updated, error: updateErr } = await getClient()
-      .from('print_jobs')
-      .update({
-        printer_name: encodePrinterPayload(meta)
-      })
-      .eq('id', jobId)
-      .select();
-
-    if (updateErr) throw updateErr;
+    const { error } = await getClient().rpc('update_print_job_status_v1', {
+      p_job_id: jobId,
+      p_status: status,
+      p_error_message: null
+    });
+    if (error) throw error;
   },
 
   async startPrint(jobId: string): Promise<void> {

@@ -14,8 +14,6 @@ import {
   RefreshCw, 
   ChevronRight,
   Sparkles,
-  Phone,
-  FileCheck
 } from 'lucide-react';
 import { supabase } from '../lib/supabase.ts';
 import { Language } from '../utils/translations.ts';
@@ -116,7 +114,7 @@ export default function GlobalSearchModal({ isOpen, onClose, lang, onNavigate }:
             autoFocus
             value={query}
             onChange={(e) => handleSearch(e.target.value)}
-            placeholder={lang === 'ar' ? 'بحث شامل (سيريال SLP، أمر ORD، دفعة BAT، عميل، هاتف، فاتورة، حالة CS)...' : 'Global Search (Serial SLP, Order ORD, Batch BAT, Customer, Phone, Invoice, Case CS)...'}
+            placeholder={lang === 'ar' ? 'بحث شامل (سيريال SLP، أمر ORD، دفعة BAT، اسم عميل، تذكرة CS)...' : 'Global Search (Serial SLP, Order ORD, Batch BAT, Customer name, Service case)...'}
             className="w-full bg-transparent outline-none text-sm text-slate-800 placeholder-slate-400 font-medium"
           />
           {query && (
@@ -146,7 +144,7 @@ export default function GlobalSearchModal({ isOpen, onClose, lang, onNavigate }:
           {!loading && !query && (
             <div className="p-6 text-center text-xs text-slate-400">
               <Sparkles className="w-6 h-6 text-amber-500 mx-auto mb-2" />
-              <span>{lang === 'ar' ? 'أدخل أي رمز كودي، رقم هاتف، أو اسم للبحث الشامل.' : 'Type any code, phone number, or name to perform unified search.'}</span>
+              <span>{lang === 'ar' ? 'أدخل رمزًا كوديًا أو اسم عميل للبحث الشامل.' : 'Type a code or customer name to search.'}</span>
             </div>
           )}
 
@@ -165,7 +163,7 @@ export default function GlobalSearchModal({ isOpen, onClose, lang, onNavigate }:
                     {item.display_text}
                   </h4>
                   <p className="text-[10px] text-slate-500 capitalize">
-                    {item.match_type.replace('_', ' ')} {item.meta?.phone ? `• Phone: ${item.meta.phone}` : ''}
+                    {item.match_type.replace('_', ' ')}
                   </p>
                 </div>
               </div>

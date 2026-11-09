@@ -17,8 +17,8 @@ interface Workspace { id: string; label: string; icon: React.ComponentType<any>;
 
 const ROLE = {
   admin: 'Administrator', pm: 'Production Manager', po: 'Production Operator',
-  print: 'Printing Operator', warranty: 'Warranty Officer', cs: 'Customer Service Agent',
-  service: 'Service Manager', read: 'Read Only User'
+  print: 'Printing Operator', warranty: 'Warranty Manager', cs: 'Customer Service User',
+  read: 'Read Only User'
 };
 
 function workspaceForPath(pathname: string): string {
@@ -30,32 +30,34 @@ function workspaceForPath(pathname: string): string {
   return 'dashboard';
 }
 
-export default function Sidebar({ lang, userRole = ROLE.admin }: SidebarProps) {
+export default function Sidebar({ lang, userRole = 'Unassigned' }: SidebarProps) {
   const t = translations[lang];
   const navigate = useNavigate();
   const location = useLocation();
   const currentWorkspace = workspaceForPath(location.pathname);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({ [currentWorkspace]: true });
   const allOps = [ROLE.admin, ROLE.pm, ROLE.po];
-  const customerOps = [ROLE.admin, ROLE.cs, ROLE.service];
-  const printOps = [ROLE.admin, ROLE.print, ROLE.pm, ROLE.po];
+  const orderAuthoringRoles = [ROLE.admin, ROLE.pm];
+  const customerOps = [ROLE.admin, ROLE.cs];
+  const printOps = [ROLE.admin, ROLE.print, ROLE.pm];
+  const printViewRoles = [...printOps, ROLE.read];
   const workspaceList: Workspace[] = [
     {
       id: 'dashboard', label: t.dashboard, icon: LayoutDashboard, defaultPath: '/dashboard',
-      subRoutes: [{ id: 'dashboard-home', label: lang === 'ar' ? 'لوحة المؤشرات' : 'Overview', path: '/dashboard', roles: [ROLE.admin, ROLE.pm, ROLE.po, ROLE.print, ROLE.warranty, ROLE.cs, ROLE.service] }]
+      subRoutes: [{ id: 'dashboard-home', label: lang === 'ar' ? 'لوحة المؤشرات' : 'Overview', path: '/dashboard', roles: [ROLE.admin, ROLE.pm, ROLE.po, ROLE.print, ROLE.warranty, ROLE.cs, ROLE.read] }]
     },
     {
       id: 'manufacturing', label: lang === 'ar' ? 'مركز الإنتاج والتصنيع' : 'Production & Manufacturing', icon: Factory, defaultPath: '/production/planning',
       subRoutes: [
         { id: 'master-data', label: lang === 'ar' ? 'بيانات المنتجات الأساسية' : 'Product Master Data', path: '/master-data/categories', roles: [ROLE.admin, ROLE.pm] },
         { id: 'engineering', label: lang === 'ar' ? 'هندسة المنتج وBOM وRouting' : 'Product Engineering · BOM · Routing', path: '/manufacturing-engineering', roles: [ROLE.admin, ROLE.pm] },
-        { id: 'quick-wizard', label: lang === 'ar' ? 'معالج الإنتاج السريع' : 'Quick Production Wizard', path: '/production/wizard', roles: allOps },
+        { id: 'quick-wizard', label: lang === 'ar' ? 'معالج الإنتاج السريع' : 'Quick Production Wizard', path: '/production/wizard', roles: orderAuthoringRoles },
         { id: 'planning', label: lang === 'ar' ? 'تخطيط الإنتاج' : 'Production Planning', path: '/production/planning', roles: allOps },
         { id: 'orders', label: lang === 'ar' ? 'أوامر الإنتاج والاعتمادات' : 'Orders & Approvals', path: '/production/orders', roles: allOps },
         { id: 'batches', label: lang === 'ar' ? 'الدفعات ومراقبة التشغيل' : 'Batches & Monitoring', path: '/production/batches', roles: allOps },
-        { id: 'serials', label: lang === 'ar' ? 'الأرقام التسلسلية والتتبع' : 'Serials & Traceability', path: '/serialization/search', roles: [ROLE.admin, ROLE.pm, ROLE.po, ROLE.print, ROLE.warranty, ROLE.cs, ROLE.service] },
+        { id: 'serials', label: lang === 'ar' ? 'الأرقام التسلسلية والتتبع' : 'Serials & Traceability', path: '/serialization/search', roles: [ROLE.admin, ROLE.pm, ROLE.po] },
         { id: 'templates', label: lang === 'ar' ? 'تصميم قوالب الملصقات' : 'Label Designer', path: '/label-designer/templates', roles: printOps },
-        { id: 'printing', label: lang === 'ar' ? 'مركز الطباعة' : 'Printing Center', path: '/printing/queue', roles: printOps }
+        { id: 'printing', label: lang === 'ar' ? 'مركز الطباعة' : 'Printing Center', path: '/printing/queue', roles: printViewRoles }
       ]
     },
     {
@@ -63,13 +65,13 @@ export default function Sidebar({ lang, userRole = ROLE.admin }: SidebarProps) {
       subRoutes: [
         { id: 'customers', label: lang === 'ar' ? 'ملف العميل 360' : 'Customer 360', path: '/customer-service/customers', roles: customerOps },
         { id: 'service-cases', label: lang === 'ar' ? 'حالات الخدمة والشكاوى' : 'Service Cases & Complaints', path: '/customer-service/cases', roles: customerOps },
-        { id: 'warranty', label: lang === 'ar' ? 'الضمان والتفعيل والتحقق' : 'Warranty & Activations', path: '/warranty/dashboard', roles: [ROLE.admin, ROLE.warranty, ROLE.cs, ROLE.service, ROLE.pm, ROLE.po, ROLE.print, ROLE.read] },
-        { id: 'replacements', label: lang === 'ar' ? 'الاستبدال والتعويضات' : 'Replacement & Compensation', path: '/replacement/requests', roles: [ROLE.admin, ROLE.service] }
+        { id: 'warranty', label: lang === 'ar' ? 'الضمان والتفعيل والتحقق' : 'Warranty & Activations', path: '/warranty/dashboard', roles: [ROLE.admin, ROLE.warranty, ROLE.cs, ROLE.read] },
+        { id: 'replacements', label: lang === 'ar' ? 'الاستبدال والتعويضات' : 'Replacement & Compensation', path: '/replacement/requests', roles: [ROLE.admin, ROLE.cs] }
       ]
     },
     {
       id: 'reports', label: lang === 'ar' ? 'التقارير والتحليلات' : 'Reports & Analytics', icon: FileBarChart2, defaultPath: '/reports/production',
-      subRoutes: [{ id: 'reports-all', label: lang === 'ar' ? 'تقارير التشغيل والتحليل' : 'Operational Reports', path: '/reports/production', roles: [ROLE.admin, ROLE.pm, ROLE.service, ROLE.warranty] }]
+      subRoutes: [{ id: 'reports-all', label: lang === 'ar' ? 'تقارير التشغيل والتحليل' : 'Operational Reports', path: '/reports/production', roles: [ROLE.admin, ROLE.pm, ROLE.cs, ROLE.warranty, ROLE.read] }]
     },
     {
       id: 'admin', label: t.mod_admin, icon: Settings, defaultPath: '/admin/users',
@@ -77,7 +79,7 @@ export default function Sidebar({ lang, userRole = ROLE.admin }: SidebarProps) {
     },
     {
       id: 'verify', label: t.mod_public_portal, icon: Globe, defaultPath: '/verify',
-      subRoutes: [{ id: 'verify-public', label: lang === 'ar' ? 'التحقق العام من المنتج والضمان' : 'Public Product Verification', path: '/verify', roles: [ROLE.admin, ROLE.pm, ROLE.po, ROLE.print, ROLE.warranty, ROLE.cs, ROLE.service] }]
+      subRoutes: [{ id: 'verify-public', label: lang === 'ar' ? 'التحقق العام من المنتج والضمان' : 'Public Product Verification', path: '/verify', roles: [ROLE.admin, ROLE.pm, ROLE.po, ROLE.print, ROLE.warranty, ROLE.cs, ROLE.read] }]
     }
   ];
 
@@ -93,7 +95,7 @@ export default function Sidebar({ lang, userRole = ROLE.admin }: SidebarProps) {
           <div>
             <h1 className="text-base font-bold text-white tracking-tight leading-none flex items-center gap-1.5">
               <span>{lang === 'ar' ? 'سـلـيـبـي' : 'Sleepee'}</span>
-              <span className="px-1.5 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[9px] font-mono rounded">v1.0</span>
+              <span className="px-1.5 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[9px] font-mono rounded">v1.6 RC</span>
             </h1>
             <span className="text-[10px] text-slate-400 font-medium leading-none block mt-1.5 truncate max-w-[180px]">
               {lang === 'ar' ? 'الشركة العربية لصناعة مراتب السوست والإسفنج' : 'Arabian Spring & Foam Mattresses Mfg. Company LTD'}

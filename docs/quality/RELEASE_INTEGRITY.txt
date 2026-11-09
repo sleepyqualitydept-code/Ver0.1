@@ -1,0 +1,3 @@
+Authoritative reference: docs/reference/Sleepee_Single_Source_Of_Truth_v1.0_Portable_Reference.md
+SHA-256: 42760475c3b7e3058f33fcc0539abacd05aef0c6826c947ba5fd960c1caeb36f
+This hash records the delivered file. It does not prove source provenance by itself.

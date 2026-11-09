@@ -5,6 +5,46 @@
 
 import { supabase } from '../lib/supabase.ts';
 
+function mapSerial(row: any) {
+  if (!row) return row;
+  const batch = Array.isArray(row.production_batches) ? row.production_batches[0] : row.production_batches;
+  const model = Array.isArray(row.models) ? row.models[0] : row.models;
+  const brand = Array.isArray(model?.brands) ? model.brands[0] : model?.brands;
+  const category = Array.isArray(model?.categories) ? model.categories[0] : model?.categories;
+  const activationRaw = Array.isArray(row.warranty_activations) ? row.warranty_activations[0] : row.warranty_activations;
+  const activation = activationRaw || null;
+  const end = activation?.warranty_end_date ? String(activation.warranty_end_date).slice(0, 10) : '';
+  const today = new Date().toISOString().slice(0, 10);
+  const isActivated = Boolean(activation?.activation_date || activation?.id);
+  return {
+    ...row,
+    serialNumber: row.serial_number || '',
+    batchId: row.batch_id || '',
+    modelId: row.model_id || model?.id || '',
+    brandId: model?.brand_id || brand?.id || '',
+    category: model?.category_id || category?.id || '',
+    orderId: batch?.production_order_id || batch?.production_orders?.id || '',
+    createdAt: row.created_at || '',
+    warrantyActive: isActivated && Boolean(end) && end >= today,
+    warrantyStart: activation?.invoice_date || '',
+    warrantyEnd: end,
+    warrantyDurationYears: Number(activation?.duration_years) || 0,
+    invoiceNo: activation?.invoice_number || '',
+    invoiceDate: activation?.invoice_date || '',
+    customerId: activation?.customer_id || '',
+    activationSource: activation ? 'database_snapshot' : '',
+    // Customer identity/contact fields are intentionally not bulk-loaded with serial lists.
+    customerName: '', customerPhone: '', customerAltPhone: '', customerNationalId: '',
+    customerGovernorate: '', customerCity: '', customerAddress: ''
+  };
+}
+
+const SERIAL_WARRANTY_SELECT = `
+  warranty_activations (
+    id, customer_id, invoice_number, invoice_date, activation_date, duration_years, warranty_end_date
+  )
+`;
+
 const getClient = () => {
   if (!supabase) throw new Error('Supabase client is not initialized.');
   return supabase;
@@ -27,15 +67,16 @@ export const serialNumbersApi = {
           )
         ),
         models (
-          id,
+          id, brand_id, category_id,
           name_ar,
           name_en,
           brands (id, name_ar, name_en)
-        )
+        ),
+        ${SERIAL_WARRANTY_SELECT}
       `)
       .order('created_at', { ascending: false });
     if (error) throw error;
-    return data || [];
+    return (data || []).map(mapSerial);
   },
 
   async getById(id: string) {
@@ -56,12 +97,13 @@ export const serialNumbersApi = {
           )
         ),
         models (
-          id,
+          id, brand_id, category_id,
           name_ar,
           name_en,
           brands (id, name_ar, name_en),
           categories (id, name_ar, name_en)
         ),
+        ${SERIAL_WARRANTY_SELECT},
         serial_history (
           id,
           event_type,
@@ -73,7 +115,7 @@ export const serialNumbersApi = {
       .eq('id', id)
       .maybeSingle();
     if (error) throw error;
-    return data;
+    return data ? mapSerial(data) : null;
   },
 
   async search(filters: {
@@ -97,11 +139,12 @@ export const serialNumbersApi = {
           )
         ),
         models (
-          id,
+          id, brand_id, category_id,
           name_ar,
           name_en,
           brands (id, name_ar, name_en)
-        )
+        ),
+        ${SERIAL_WARRANTY_SELECT}
       `);
 
     if (filters.status && filters.status !== 'all') {
@@ -161,7 +204,7 @@ export const serialNumbersApi = {
 
     const { data, error } = await q.order('created_at', { ascending: false });
     if (error) throw error;
-    return data || [];
+    return (data || []).map(mapSerial);
   },
 
   async generate(batchId: string) {
@@ -270,27 +313,7 @@ export const serialNumbersApi = {
     return data || [];
   },
 
-  async addHistoryEvent(serialId: string, eventType: string, notes?: string, userId?: string) {
-    const { data, error } = await getClient()
-      .from('serial_history')
-      .insert([{
-        serial_id: serialId,
-        event_type: eventType,
-        notes: notes || '',
-        created_by: userId || null
-      }])
-      .select();
-    if (error) throw error;
-    return data?.[0];
-  },
-
-  async updateStatus(serialIds: string[], status: string) {
-    const { data, error } = await getClient()
-      .from('serial_numbers')
-      .update({ status, updated_at: new Date().toISOString() })
-      .in('id', serialIds)
-      .select();
-    if (error) throw error;
-    return data;
+  async updateStatus(_serialIds: string[], _status: string) {
+    throw new Error('SERIAL_STATUS_CHANGE_BLOCKED: Direct browser updates to serial status are disabled. Use the approved domain RPC; printer success has not been physically validated yet.');
   }
 };

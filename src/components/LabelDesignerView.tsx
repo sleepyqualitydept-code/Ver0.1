@@ -109,7 +109,7 @@ export default function LabelDesignerView({
   policies = [],
   productSizes = [],
   productTypes = [],
-  currentRole = 'Administrator',
+  currentRole = 'Unassigned',
   onLogAudit
 }: LabelDesignerViewProps) {
   const t = translations[lang];
@@ -118,8 +118,8 @@ export default function LabelDesignerView({
 
   const currentSubTab = location.pathname.split('/')[2] || 'templates';
 
-  // Role Permissions (Strict Phase 08 Architecture: Administrator & Printing Operator only)
-  const canEdit = ['Administrator', 'Printing Operator'].includes(currentRole);
+  // Role permissions: Admin, Production Manager, and Printing Operator; database RLS remains authoritative.
+  const canEdit = ['Administrator', 'Printing Operator', 'Production Manager'].includes(currentRole);
 
   // State
   const [templates, setTemplates] = useState<LabelTemplate[]>([]);

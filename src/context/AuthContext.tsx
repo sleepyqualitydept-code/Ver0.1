@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase.ts';
 import { checkDatabaseHealth, DatabaseHealthStatus } from '../services/databaseHealthCheck.ts';
 
@@ -20,7 +20,7 @@ interface AuthContextType {
   loading: boolean;
   dbHealth: DatabaseHealthStatus | null;
   signIn: (email: string, password: string) => Promise<any>;
-  signUp: (email: string, password: string, fullName: string, roleName: string) => Promise<any>;
+  signUp: (email: string, password: string, fullName: string) => Promise<any>;
   signOut: () => Promise<void>;
   checkHealth: () => Promise<DatabaseHealthStatus>;
 }
@@ -38,142 +38,144 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [session, setSession] = useState<any | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [dbHealth, setDbHealth] = useState<DatabaseHealthStatus | null>(null);
+  const mountedRef = useRef(false);
+  const profileRequestRef = useRef(0);
 
   const checkHealth = async () => {
     const health = await checkDatabaseHealth();
-    setDbHealth(health);
+    if (mountedRef.current) setDbHealth(health);
     return health;
   };
 
   const fetchUserProfile = async (userId: string, email: string) => {
     if (!supabase) {
-      setUser(null);
-      setLoading(false);
+      if (mountedRef.current) {
+        setUser(null);
+        setLoading(false);
+      }
       return;
     }
+
+    const requestId = ++profileRequestRef.current;
+    const applyIfCurrent = (callback: () => void) => {
+      if (mountedRef.current && requestId === profileRequestRef.current) callback();
+    };
 
     try {
       const health = await checkHealth();
       if (!health.hasCoreTables) {
-        console.warn('Database schema not deployed. Skipping profile fetch.');
-        setLoading(false);
+        applyIfCurrent(() => setUser(null));
         return;
       }
 
-      // 1. Fetch or ensure profile exists
-      let { data: profile, error: profError } = await supabase
+      // profiles are created by the trusted auth.users trigger in the database.
+      // The browser must not try to bypass that contract with a direct INSERT.
+      const { data: profile, error: profileError } = await supabase
         .from('profiles')
-        .select('*')
+        .select('id, email, full_name')
         .eq('id', userId)
         .maybeSingle();
 
-      if (profError && (profError.code === 'PGRST205' || profError.message?.includes('Could not find the table'))) {
-        setDbHealth(prev => prev ? { ...prev, hasCoreTables: false } : null);
-        setLoading(false);
+      if (profileError) throw profileError;
+      if (!profile) {
+        console.error('[AUTH] Profile row is missing. Check the Supabase auth-profile trigger.');
+        applyIfCurrent(() => setUser({
+          id: userId,
+          email,
+          fullName: email.split('@')[0],
+          role: 'Unassigned'
+        }));
         return;
       }
 
-      if (!profile) {
-        // Auto-create profile if missing
-        const { data: newProf } = await supabase
-          .from('profiles')
-          .insert([{ id: userId, email, full_name: email.split('@')[0] }])
-          .select()
-          .maybeSingle();
-        profile = newProf || { id: userId, email, full_name: email.split('@')[0] };
-      }
-
-      // 2. Fetch or ensure user role exists
-      console.log('PROFILE', profile);
-      
-      let roleData = null;
-
-      const roleResult = await supabase
+      const { data: roleData, error: roleError } = await supabase
         .from('user_roles')
         .select('role_name')
         .eq('user_id', userId)
-        .single();
+        .maybeSingle();
 
-      console.log('ROLE', roleResult);
-      console.log('USER ID', userId);
-      console.log('EMAIL', email);
+      if (roleError) throw roleError;
 
-      if (roleResult.error) {
-        console.error('[AUTH ROLE ERROR] No server-assigned role exists for this user.', roleResult.error);
-        setUser({
-          id: userId,
-          email,
-          fullName: profile?.full_name || email.split('@')[0],
-          role: 'Unassigned'
-        });
-        setLoading(false);
-        return;
-      }
-
-      roleData = roleResult.data;
-
-      const userRole = roleData.role_name;
-
-      console.log(
-        '[AUTH SUCCESS]',
-        {
-          userId,
-          email,
-          role: userRole
-        }
-      );
-
-      setUser({
+      applyIfCurrent(() => setUser({
         id: userId,
         email,
-        fullName:
-          profile?.full_name ||
-          email.split('@')[0],
-        role: userRole
-      });
-    } catch (err: any) {
+        fullName: profile.full_name || email.split('@')[0],
+        role: roleData?.role_name || 'Unassigned'
+      }));
+    } catch (err: unknown) {
       console.warn('Role resolution failed; access remains unassigned:', err);
-      // HARDENED: Replace unsafe admin fallback with an unassigned role on failure
-      setUser({
+      applyIfCurrent(() => setUser({
         id: userId,
         email,
         fullName: email.split('@')[0],
         role: 'Unassigned'
-      });
+      }));
     } finally {
-      setLoading(false);
+      applyIfCurrent(() => setLoading(false));
     }
   };
 
   useEffect(() => {
-    checkHealth().then((health) => {
-      if (!supabase) {
-        setLoading(false);
-        return;
+    mountedRef.current = true;
+    let authSubscription: { unsubscribe: () => void } | undefined;
+
+    const initializeAuth = async () => {
+      try {
+        await checkHealth();
+        if (!mountedRef.current) return;
+
+        if (!supabase) {
+          setLoading(false);
+          return;
+        }
+
+        const { data, error } = await supabase.auth.getSession();
+        if (error) throw error;
+        if (!mountedRef.current) return;
+
+        setSession(data.session);
+        if (data.session?.user) {
+          void fetchUserProfile(data.session.user.id, data.session.user.email || '');
+        } else {
+          setUser(null);
+          setLoading(false);
+        }
+
+        const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+          if (!mountedRef.current) return;
+          setSession(nextSession);
+          if (!nextSession) {
+            profileRequestRef.current++;
+            setUser(null);
+            setLoading(false);
+            return;
+          }
+          setLoading(true);
+          // Defer Supabase queries until after the auth callback completes.
+          queueMicrotask(() => {
+            if (mountedRef.current) {
+              void fetchUserProfile(nextSession.user.id, nextSession.user.email || '');
+            }
+          });
+        });
+        authSubscription = listener.subscription;
+      } catch (error) {
+        console.error('[AUTH INITIALIZATION ERROR]', error);
+        if (mountedRef.current) {
+          setUser(null);
+          setSession(null);
+          setLoading(false);
+        }
       }
+    };
 
-      supabase.auth.getSession().then(({ data: { session } }) => {
-        setSession(session);
-        if (session?.user && health.hasCoreTables) {
-          fetchUserProfile(session.user.id, session.user.email || '');
-        } else {
-          setUser(null);
-          setLoading(false);
-        }
-      });
+    void initializeAuth();
 
-      const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-        setSession(session);
-        if (session?.user && health.hasCoreTables) {
-          fetchUserProfile(session.user.id, session.user.email || '');
-        } else {
-          setUser(null);
-          setLoading(false);
-        }
-      });
-
-      return () => subscription.unsubscribe();
-    });
+    return () => {
+      mountedRef.current = false;
+      profileRequestRef.current++;
+      authSubscription?.unsubscribe();
+    };
   }, []);
 
   const signIn = async (email: string, password: string) => {
@@ -188,20 +190,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const signUp = async (email: string, password: string, fullName: string, roleName: string) => {
+  const signUp = async (email: string, password: string, fullName: string) => {
     if (!supabase) throw new Error('Supabase client is not initialized.');
     setLoading(true);
     try {
-      const { data, error } = await supabase.auth.signUp({ email, password });
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: { data: { full_name: fullName.trim() } }
+      });
       if (error) throw error;
       if (!data.user) throw new Error('Sign up failed');
 
-      if (dbHealth?.hasCoreTables) {
-        await supabase.from('profiles').insert([{ id: data.user.id, email, full_name: fullName }]);
-        // Role assignment is administrator-controlled. The client-selected role is intentionally ignored.
-        console.info('[AUTH] New account created without a role. An Administrator must assign the role.');
-      }
-
+      // The database trigger creates profiles from trusted Auth metadata.
+      // Business role assignment remains a separate administrator-controlled operation.
+      console.info('[AUTH] Account created without a business role; administrator assignment is required.');
       return data;
     } finally {
       setLoading(false);

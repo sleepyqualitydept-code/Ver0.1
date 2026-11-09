@@ -64,6 +64,8 @@ export async function checkDatabaseHealth(): Promise<DatabaseHealthStatus> {
     return unavailableStatus(supabaseUrl, projectRef, 'Supabase client is not initialized. Check the VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY environment variables.');
   }
 
+  let endpointResponded = false;
+
   const statusMap: Record<CoreTableName, boolean> = {
     user_roles: false,
     profiles: false,
@@ -80,6 +82,12 @@ export async function checkDatabaseHealth(): Promise<DatabaseHealthStatus> {
         .select('*', { count: 'exact', head: true });
 
       statusMap[tableName] = !error;
+      // Count a successful query or a real HTTP response as endpoint reachability.
+      // A network failure may expose status=0; that is not evidence the endpoint responded.
+      const httpStatus = typeof (error as any)?.status === 'number' ? (error as any).status : 0;
+      if (!error || (httpStatus >= 100 && httpStatus <= 599)) {
+        endpointResponded = true;
+      }
       if (error) {
         // A failed query may indicate a missing table, permissions, or another schema mismatch.
         // Report only that this table could not be verified; do not infer the exact cause.
@@ -92,7 +100,7 @@ export async function checkDatabaseHealth(): Promise<DatabaseHealthStatus> {
     const unavailableTables = CORE_TABLES.filter((name) => !statusMap[name]);
 
     return {
-      isConnected: true,
+      isConnected: endpointResponded,
       projectUrl: supabaseUrl,
       projectRef,
       tableCount: verifiedCoreTableCount,

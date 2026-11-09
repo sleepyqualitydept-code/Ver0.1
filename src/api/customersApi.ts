@@ -17,7 +17,15 @@ export const customersApi = {
       .select('*')
       .order('created_at', { ascending: false });
     if (error) throw error;
-    return data;
+    return (data || []).map((row: any) => ({
+      ...row,
+      fullName: row.full_name,
+      alternativePhone: row.alternative_phone || '',
+      nationalId: row.national_id || '',
+      governorate: row.governorate || '',
+      city: row.city || '',
+      address: row.address || ''
+    }));
   },
 
   async insert(customer: any) {
@@ -26,6 +34,7 @@ export const customersApi = {
       .insert([customer])
       .select();
     if (error) throw error;
-    return data?.[0];
+    const row = data?.[0];
+    return row ? { ...row, fullName: row.full_name, alternativePhone: row.alternative_phone || '', nationalId: row.national_id || '', governorate: row.governorate || '', city: row.city || '', address: row.address || '' } : null;
   }
 };

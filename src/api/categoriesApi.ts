@@ -17,6 +17,6 @@ export const categoriesApi = {
       .select('*')
       .order('id');
     if (error) throw error;
-    return data;
+    return (data || []).map((row: any) => ({ ...row, nameAr: row.name_ar, nameEn: row.name_en }));
   }
 };

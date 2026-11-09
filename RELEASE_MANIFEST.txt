@@ -1,9 +1,11 @@
 Sleepee Manufacturing, Warranty & Customer Service Platform
-Release candidate: SLEEPEE_PLATFORM_LABEL_PRINTING_HARDENED_CANDIDATE_v1.4
-Base: Candidate v1.3 + bounded label editor placement and print-template geometry summary.
-Status: REVIEW CANDIDATE; NOT PRODUCTION CERTIFIED.
-Database migrations executed: NO.
-Supabase live database modified: NO.
-Physical Zebra ZD220 printing tested: NO.
-Build and lint proven in this environment: NO (dependency installation timed out).
-See docs/integration/LABEL_AND_PRINTING_HARDENING_REPORT_AR.md.
+Release: 1.6.0-rc.2 — FINAL CONSOLIDATED SOURCE HANDOFF (not production-certified)
+Stack: React + TypeScript + Vite + Supabase; no Firebase
+SSoT: preserved unmodified; SHA-256 recorded in docs/quality/RELEASE_INTEGRITY.txt
+Duplicate root audit snapshots: removed; one phase matrix and one quality report remain authoritative
+SQL execution: none; proposed migrations remain review-only
+Supabase live changes: none
+npm ci: not completed in current network environment; build/typecheck unproven
+Static release checks: PASS; TypeScript/TSX syntax transpile: PASS (53 files)
+Physical Zebra ZD220 test: not performed; print success remains fail-closed
+See README_START_HERE_AR.md, docs/quality/VERIFICATION_RESULTS_AR.md and docs/phases/PHASE_DELIVERY_MATRIX_AR.md

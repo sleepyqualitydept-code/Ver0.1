@@ -74,7 +74,7 @@ export default function WarrantyView({
   models,
   categories = [],
   lang,
-  currentRole = 'Administrator',
+  currentRole = 'Unassigned',
   onLogAudit
 }: WarrantyViewProps) {
   const t = translations[lang];
@@ -86,11 +86,11 @@ export default function WarrantyView({
 
   // Role permissions
   const isAdministrator = currentRole === 'Administrator';
-  const canManagePolicies = isAdministrator || currentRole === 'Warranty Officer';
+  const canManagePolicies = isAdministrator || currentRole === 'Warranty Manager';
   const canActivate =
     isAdministrator ||
-    currentRole === 'Warranty Officer' ||
-    currentRole === 'Customer Service Agent';
+    currentRole === 'Warranty Manager' ||
+    currentRole === 'Customer Service User';
 
   // ============================================================================
   // DATABASE STATE (PostgreSQL as Authoritative Source of Truth)

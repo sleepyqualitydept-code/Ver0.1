@@ -124,7 +124,8 @@ export default function CustomerServiceView({
     e.preventDefault();
     if (!selectedSerial) return;
 
-    const selectedCustomer = customers.find(c => c.phone === selectedSerial.customerPhone) ||
+    const selectedCustomer = (selectedSerial.customerId ? customers.find(c => c.id === selectedSerial.customerId) : undefined) ||
+      customers.find(c => c.phone === selectedSerial.customerPhone) ||
       (selectedSerial.customerName ? customers.find(c => c.fullName === selectedSerial.customerName) : undefined);
     if (!selectedCustomer || !currentUser) {
       alert(lang === 'ar' ? 'لا توجد بيانات عميل موثقة لهذا المنتج. يجب اختيار/إنشاء عميل حقيقي قبل فتح التذكرة.' : 'A verified customer and authenticated user are required before opening a service case.');
